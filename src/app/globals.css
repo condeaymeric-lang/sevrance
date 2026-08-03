@@ -1,0 +1,73 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-ivory text-ink font-sans antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    @apply bg-bronze text-ivory;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.bronze.DEFAULT");
+    outline-offset: 3px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+@layer components {
+  /* Le seul bouton plein du site. Utilisé à l'identique dans le hero et en CTA final. */
+  .btn-primary {
+    @apply inline-flex w-full items-center justify-center gap-2 rounded-sm bg-bronze px-8 py-4
+           text-center text-base font-medium tracking-wide text-ivory transition-colors
+           hover:bg-bronze-deep disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto sm:text-lg;
+  }
+
+  .eyebrow {
+    @apply text-xs font-medium uppercase tracking-label text-bronze;
+  }
+
+  .rule-top {
+    @apply border-t border-rule;
+  }
+
+  /* Mise en forme des pages légales, sans plugin typography. */
+  .legal-prose h2 {
+    @apply mt-12 font-serif text-2xl leading-tight tracking-tight sm:text-3xl;
+  }
+
+  .legal-prose h3 {
+    @apply mt-8 text-base font-medium;
+  }
+
+  .legal-prose p,
+  .legal-prose li {
+    @apply mt-4 max-w-prose leading-relaxed text-muted;
+  }
+
+  .legal-prose ul {
+    @apply mt-2 list-disc pl-5;
+  }
+
+  .legal-prose a {
+    @apply underline underline-offset-4 hover:text-ink;
+  }
+
+  .legal-prose strong {
+    @apply font-medium text-ink;
+  }
+}
