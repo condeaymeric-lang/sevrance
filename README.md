@@ -1,6 +1,6 @@
 # Sevrance — page de vente
 
-Page de vente courte pour l'ebook **Sevrance** (50 pages, 49,90 €), avec
+Page de vente courte pour l'ebook **Sevrance** (50 pages, 49 €), avec
 paiement Stripe, livraison du PDF par lien signé et envoi automatique de
 l'email de confirmation.
 

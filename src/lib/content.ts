@@ -4,9 +4,9 @@
  * témoignage non vérifié. Rien ici ne doit être invérifiable.
  */
 
-export const PRICE_EUR = 49.9;
+export const PRICE_EUR = 49;
 
-export const PRICE_LABEL = "49,90 €";
+export const PRICE_LABEL = "49 €";
 
 export const PRODUCT = {
   name: "Sevrance",
