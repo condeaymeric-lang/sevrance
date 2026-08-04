@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    Favicon Matchly — symbole seul, version 08 (provisoire).
+    Le dégradé est écrit en sRGB et non en OKLCH : les navigateurs rendent le
+    favicon hors du contexte de la page, sans accès aux variables CSS du thème.
+  -->
+  <defs>
+    <linearGradient id="matchly-favicon" x1="2" y1="4" x2="30" y2="28" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6d28d9" />
+      <stop offset="50%" stop-color="#2563eb" />
+      <stop offset="100%" stop-color="#06b6d4" />
+    </linearGradient>
+  </defs>
+  <path
+    d="M4 26V9.5a1.5 1.5 0 0 1 2.6-1.02L16 18.5l9.4-10.02A1.5 1.5 0 0 1 28 9.5V26"
+    fill="none"
+    stroke="url(#matchly-favicon)"
+    stroke-width="3.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

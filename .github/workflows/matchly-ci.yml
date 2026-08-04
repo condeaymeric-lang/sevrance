@@ -1,0 +1,183 @@
+# =============================================================================
+# MATCHLY — intégration continue
+# -----------------------------------------------------------------------------
+# Le filtre `paths` est essentiel : ce dépôt héberge aussi un autre produit à sa
+# racine. Sans lui, chaque commit sans rapport avec Matchly déclencherait cette
+# chaîne, et inversement une CI Matchly rouge bloquerait un travail qui ne la
+# concerne pas.
+# =============================================================================
+
+name: Matchly CI
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'matchly/**'
+      - '.github/workflows/matchly-ci.yml'
+  pull_request:
+    paths:
+      - 'matchly/**'
+      - '.github/workflows/matchly-ci.yml'
+
+# Annule les exécutions obsolètes : sur une branche poussée plusieurs fois de
+# suite, seul le dernier commit mérite des minutes de calcul.
+concurrency:
+  group: matchly-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: matchly
+
+env:
+  # Neutralise l'installation des hooks Git et la télémétrie.
+  HUSKY: '0'
+  NEXT_TELEMETRY_DISABLED: '1'
+  TURBO_TELEMETRY_DISABLED: '1'
+  DO_NOT_TRACK: '1'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Qualité : lint, format et types.
+  # Séparé du build pour que l'erreur remonte en une minute plutôt qu'en dix.
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Qualité
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: matchly/package-lock.json
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Générer le client Prisma
+        # Le client est du code généré, exclu du dépôt : sans cette étape, le
+        # typecheck de l'API échouerait sur des imports introuvables.
+        run: npm run db:generate
+
+      - name: Vérifier le formatage
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Vérification des types
+        run: npm run typecheck
+
+  # ---------------------------------------------------------------------------
+  # Tests unitaires de tous les paquets.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: matchly/package-lock.json
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Générer le client Prisma
+        run: npm run db:generate
+
+      - name: Tests
+        run: npm run test
+
+  # ---------------------------------------------------------------------------
+  # Build de production — l'ultime garde-fou avant déploiement.
+  # ---------------------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      # Valeurs factices : le build n'ouvre aucune connexion, mais la validation
+      # de configuration exige que ces variables soient présentes et bien formées.
+      DATABASE_URL: postgresql://matchly:matchly@localhost:5432/matchly
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_SITE_URL: https://matchly.app
+      NEXT_PUBLIC_API_URL: https://api.matchly.app/api/v1
+      NEXT_PUBLIC_WS_URL: https://api.matchly.app
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: matchly/package-lock.json
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Générer le client Prisma
+        run: npm run db:generate
+
+      - name: Build
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
+  # Validation du schéma de base de données contre un vrai PostgreSQL.
+  # Valider le schéma hors ligne ne prouve rien : seule une migration appliquée
+  # révèle une contrainte impossible ou un index en conflit.
+  # ---------------------------------------------------------------------------
+  database:
+    name: Base de données
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: matchly
+          POSTGRES_PASSWORD: matchly
+          POSTGRES_DB: matchly_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U matchly -d matchly_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://matchly:matchly@localhost:5432/matchly_ci
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: matchly/package-lock.json
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Valider le schéma Prisma
+        working-directory: matchly/apps/api
+        run: npx prisma validate
+
+      - name: Appliquer le schéma sur PostgreSQL
+        working-directory: matchly/apps/api
+        run: npx prisma db push --skip-generate

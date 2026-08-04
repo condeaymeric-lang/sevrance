@@ -1,0 +1,94 @@
+# =============================================================================
+# MATCHLY — pile de développement local
+# -----------------------------------------------------------------------------
+#   npm run infra:up      démarre PostgreSQL, Redis et MediaMTX
+#   npm run infra:logs    suit les journaux
+#   npm run infra:down    arrête tout (les volumes sont conservés)
+#
+# Les applications (`apps/web`, `apps/api`) tournent hors de Docker en
+# développement : le rechargement à chaud est nettement plus rapide en natif, et
+# c'est le cycle de travail quotidien qu'il faut optimiser. Docker ne porte ici
+# que les dépendances d'infrastructure, celles qu'on ne veut pas installer à la
+# main sur chaque poste.
+# =============================================================================
+
+name: matchly
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL — base de données principale
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:17-alpine
+    container_name: matchly-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-matchly}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-matchly_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-matchly}
+      # Collation déterministe : sans elle, l'ordre des tris dépend de la locale
+      # de l'hôte, et un classement diffère entre le poste et la production.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      # `pg_isready` répond avant que la base accepte réellement des requêtes ;
+      # on interroge donc la base nommée pour que le healthcheck soit honnête.
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-matchly} -d ${POSTGRES_DB:-matchly}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Redis — cache, bus temps réel, compteurs de limitation de débit
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: matchly-redis
+    restart: unless-stopped
+    # `appendonly` conserve les données entre deux redémarrages : en
+    # développement, perdre le cache à chaque `down` masque les bugs de
+    # réchauffement de cache qu'on veut justement voir.
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ---------------------------------------------------------------------------
+  # MediaMTX — serveur média : ingestion RTMP, diffusion HLS et WebRTC
+  # ---------------------------------------------------------------------------
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: matchly-mediamtx
+    restart: unless-stopped
+    environment:
+      MTX_PROTOCOLS: tcp
+    ports:
+      - '1935:1935' # RTMP — ingestion depuis OBS ou l'application mobile
+      - '8888:8888' # HLS — lecture compatible partout, latence 2 à 6 s
+      - '8889:8889' # WebRTC (WHEP) — lecture sub-seconde
+      - '8189:8189/udp' # WebRTC ICE/UDP — sans ce port, pas de flux média
+      - '9997:9997' # API de contrôle et métriques
+    volumes:
+      - ./mediamtx/mediamtx.yml:/mediamtx.yml:ro
+      - mediamtx-recordings:/recordings
+    healthcheck:
+      test: ['CMD', 'wget', '--spider', '-q', 'http://localhost:9997/v3/config/global/get']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  postgres-data:
+  redis-data:
+  mediamtx-recordings:

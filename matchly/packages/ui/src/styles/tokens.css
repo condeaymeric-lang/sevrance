@@ -1,0 +1,554 @@
+/* ==========================================================================
+   MATCHLY — Design Tokens
+   --------------------------------------------------------------------------
+   Source de vérité unique de l'identité visuelle. Aucun composant n'a le droit
+   d'écrire une couleur en dur : tout passe par ces variables.
+
+   Pourquoi OKLCH plutôt que HSL ou hexadécimal ?
+   OKLCH est perceptuellement uniforme : deux teintes de même luminosité `L`
+   sont perçues aussi claires l'une que l'autre. Une échelle 50→950 construite
+   en OKLCH garde donc un contraste homogène d'une couleur à l'autre, ce qui
+   rend les seuils WCAG prévisibles au lieu d'être vérifiés au cas par cas.
+   C'est aussi ce qui permet au violet, au bleu et au cyan de la marque de
+   coexister dans un dégradé sans la zone grisâtre que produit une
+   interpolation sRGB.
+
+   Ce fichier s'importe APRÈS `@import "tailwindcss"`.
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   Variante dark pilotée par une classe.
+   `next-themes` pose `class="dark"` sur <html>. On déclare la variante
+   explicitement car Tailwind 4 se base par défaut sur `prefers-color-scheme`,
+   ce qui empêcherait l'utilisateur de forcer un thème.
+   -------------------------------------------------------------------------- */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* --------------------------------------------------------------------------
+   1. PALETTE DE MARQUE — valeurs absolues, identiques dans les deux thèmes.
+   -------------------------------------------------------------------------- */
+:root {
+  /* Violet — couleur primaire, celle du logo et des actions principales. */
+  --matchly-violet-50: oklch(0.977 0.014 295);
+  --matchly-violet-100: oklch(0.946 0.033 295);
+  --matchly-violet-200: oklch(0.902 0.063 295);
+  --matchly-violet-300: oklch(0.827 0.109 295);
+  --matchly-violet-400: oklch(0.714 0.176 295);
+  --matchly-violet-500: oklch(0.606 0.23 295);
+  --matchly-violet-600: oklch(0.541 0.253 295);
+  --matchly-violet-700: oklch(0.491 0.24 295);
+  --matchly-violet-800: oklch(0.432 0.208 295);
+  --matchly-violet-900: oklch(0.38 0.176 295);
+  --matchly-violet-950: oklch(0.283 0.128 295);
+
+  /* Bleu — couleur secondaire, données et états informatifs. */
+  --matchly-blue-50: oklch(0.97 0.014 258);
+  --matchly-blue-100: oklch(0.938 0.032 258);
+  --matchly-blue-200: oklch(0.885 0.062 258);
+  --matchly-blue-300: oklch(0.809 0.105 258);
+  --matchly-blue-400: oklch(0.707 0.165 258);
+  --matchly-blue-500: oklch(0.623 0.214 258);
+  --matchly-blue-600: oklch(0.546 0.245 262);
+  --matchly-blue-700: oklch(0.488 0.223 264);
+  --matchly-blue-800: oklch(0.424 0.181 266);
+  --matchly-blue-900: oklch(0.379 0.146 266);
+  --matchly-blue-950: oklch(0.282 0.091 267);
+
+  /* Cyan — accent, direct et éléments d'énergie. */
+  --matchly-cyan-50: oklch(0.984 0.019 200);
+  --matchly-cyan-100: oklch(0.956 0.045 203);
+  --matchly-cyan-200: oklch(0.917 0.08 205);
+  --matchly-cyan-300: oklch(0.865 0.111 207);
+  --matchly-cyan-400: oklch(0.789 0.129 209);
+  --matchly-cyan-500: oklch(0.715 0.143 215);
+  --matchly-cyan-600: oklch(0.609 0.126 222);
+  --matchly-cyan-700: oklch(0.52 0.105 224);
+  --matchly-cyan-800: oklch(0.45 0.085 224);
+  --matchly-cyan-900: oklch(0.398 0.07 227);
+  --matchly-cyan-950: oklch(0.302 0.056 229);
+
+  /* Neutres — légèrement teintés violet pour éviter le gris « bureautique ». */
+  --matchly-neutral-0: oklch(1 0 0);
+  --matchly-neutral-50: oklch(0.985 0.002 295);
+  --matchly-neutral-100: oklch(0.968 0.004 295);
+  --matchly-neutral-200: oklch(0.925 0.006 295);
+  --matchly-neutral-300: oklch(0.869 0.008 295);
+  --matchly-neutral-400: oklch(0.706 0.012 295);
+  --matchly-neutral-500: oklch(0.556 0.014 295);
+  --matchly-neutral-600: oklch(0.442 0.014 295);
+  --matchly-neutral-700: oklch(0.371 0.014 295);
+  --matchly-neutral-800: oklch(0.269 0.014 295);
+  --matchly-neutral-900: oklch(0.205 0.014 295);
+  --matchly-neutral-950: oklch(0.145 0.012 295);
+  --matchly-neutral-1000: oklch(0 0 0);
+
+  /* États sémantiques — succès, alerte, danger. */
+  --matchly-success-500: oklch(0.723 0.174 149);
+  --matchly-success-600: oklch(0.627 0.166 149);
+  --matchly-warning-500: oklch(0.795 0.162 78);
+  --matchly-warning-600: oklch(0.705 0.163 66);
+  --matchly-danger-500: oklch(0.637 0.237 25);
+  --matchly-danger-600: oklch(0.577 0.245 27);
+
+  /* Rouge du direct — volontairement distinct du danger : « live » n'est pas
+     une erreur, et les deux ne doivent jamais se confondre à l'écran. */
+  --matchly-live: oklch(0.628 0.258 22);
+}
+
+/* --------------------------------------------------------------------------
+   2. TOKENS SÉMANTIQUES — thème clair (défaut).
+   Les composants ne référencent QUE ces variables, jamais la palette brute.
+   -------------------------------------------------------------------------- */
+:root {
+  --background: var(--matchly-neutral-0);
+  --foreground: var(--matchly-neutral-950);
+
+  --surface: var(--matchly-neutral-0);
+  --surface-foreground: var(--matchly-neutral-950);
+  --surface-elevated: var(--matchly-neutral-0);
+
+  --card: var(--matchly-neutral-0);
+  --card-foreground: var(--matchly-neutral-950);
+
+  --popover: var(--matchly-neutral-0);
+  --popover-foreground: var(--matchly-neutral-950);
+
+  --primary: var(--matchly-violet-600);
+  --primary-hover: var(--matchly-violet-700);
+  --primary-foreground: var(--matchly-neutral-0);
+
+  --secondary: var(--matchly-neutral-100);
+  --secondary-foreground: var(--matchly-neutral-900);
+
+  --accent: var(--matchly-cyan-500);
+  --accent-foreground: var(--matchly-neutral-950);
+
+  --muted: var(--matchly-neutral-100);
+  --muted-foreground: var(--matchly-neutral-600);
+
+  --destructive: var(--matchly-danger-600);
+  --destructive-foreground: var(--matchly-neutral-0);
+
+  --success: var(--matchly-success-600);
+  --success-foreground: var(--matchly-neutral-0);
+
+  --warning: var(--matchly-warning-600);
+  --warning-foreground: var(--matchly-neutral-950);
+
+  --live: var(--matchly-live);
+  --live-foreground: var(--matchly-neutral-0);
+
+  --border: var(--matchly-neutral-200);
+  --input: var(--matchly-neutral-200);
+  --ring: var(--matchly-violet-500);
+
+  /* Dégradé de marque. Le passage violet → bleu → cyan est l'élément
+     graphique signature : il doit rester identique partout. */
+  --gradient-brand: linear-gradient(
+    135deg,
+    var(--matchly-violet-600) 0%,
+    var(--matchly-blue-600) 50%,
+    var(--matchly-cyan-500) 100%
+  );
+  --gradient-brand-soft: linear-gradient(
+    135deg,
+    var(--matchly-violet-100) 0%,
+    var(--matchly-blue-100) 50%,
+    var(--matchly-cyan-100) 100%
+  );
+
+  /* Élévations. En thème clair l'ombre est portée par la lumière ;
+     en thème sombre elle sera remplacée par un halo (cf. bloc .dark). */
+  --shadow-xs: 0 1px 2px 0 oklch(0.145 0.012 295 / 0.05);
+  --shadow-sm:
+    0 1px 3px 0 oklch(0.145 0.012 295 / 0.08), 0 1px 2px -1px oklch(0.145 0.012 295 / 0.06);
+  --shadow-md:
+    0 4px 12px -2px oklch(0.145 0.012 295 / 0.1), 0 2px 6px -2px oklch(0.145 0.012 295 / 0.06);
+  --shadow-lg:
+    0 12px 32px -8px oklch(0.145 0.012 295 / 0.14), 0 4px 12px -4px oklch(0.145 0.012 295 / 0.08);
+  --shadow-xl: 0 24px 64px -16px oklch(0.145 0.012 295 / 0.2);
+  --shadow-glow:
+    0 0 0 1px oklch(0.606 0.23 295 / 0.12), 0 8px 32px -8px oklch(0.606 0.23 295 / 0.32);
+
+  --radius: 0.75rem;
+}
+
+/* --------------------------------------------------------------------------
+   3. TOKENS SÉMANTIQUES — thème sombre.
+   Le fond n'est pas noir pur : un noir absolu sur écran OLED crée un contraste
+   fatigant avec le texte et écrase toute hiérarchie d'élévation. On part d'un
+   noir teinté violet, et les surfaces s'éclaircissent avec l'élévation.
+   -------------------------------------------------------------------------- */
+.dark {
+  --background: var(--matchly-neutral-950);
+  --foreground: var(--matchly-neutral-50);
+
+  --surface: var(--matchly-neutral-900);
+  --surface-foreground: var(--matchly-neutral-50);
+  --surface-elevated: var(--matchly-neutral-800);
+
+  --card: oklch(0.185 0.014 295);
+  --card-foreground: var(--matchly-neutral-50);
+
+  --popover: oklch(0.205 0.014 295);
+  --popover-foreground: var(--matchly-neutral-50);
+
+  --primary: var(--matchly-violet-500);
+  --primary-hover: var(--matchly-violet-400);
+  --primary-foreground: var(--matchly-neutral-0);
+
+  --secondary: oklch(0.269 0.014 295);
+  --secondary-foreground: var(--matchly-neutral-50);
+
+  --accent: var(--matchly-cyan-400);
+  --accent-foreground: var(--matchly-neutral-950);
+
+  --muted: oklch(0.269 0.014 295);
+  --muted-foreground: var(--matchly-neutral-400);
+
+  --destructive: var(--matchly-danger-500);
+  --destructive-foreground: var(--matchly-neutral-0);
+
+  --success: var(--matchly-success-500);
+  --success-foreground: var(--matchly-neutral-950);
+
+  --warning: var(--matchly-warning-500);
+  --warning-foreground: var(--matchly-neutral-950);
+
+  --live: var(--matchly-live);
+  --live-foreground: var(--matchly-neutral-0);
+
+  --border: oklch(0.3 0.014 295);
+  --input: oklch(0.3 0.014 295);
+  --ring: var(--matchly-violet-400);
+
+  --gradient-brand: linear-gradient(
+    135deg,
+    var(--matchly-violet-500) 0%,
+    var(--matchly-blue-500) 50%,
+    var(--matchly-cyan-400) 100%
+  );
+  --gradient-brand-soft: linear-gradient(
+    135deg,
+    var(--matchly-violet-950) 0%,
+    var(--matchly-blue-950) 50%,
+    var(--matchly-cyan-950) 100%
+  );
+
+  /* En sombre, une ombre noire est invisible : l'élévation passe par un liseré
+     clair en haut de l'élément, qui simule une source lumineuse zénithale. */
+  --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.3);
+  --shadow-sm: 0 1px 3px 0 oklch(0 0 0 / 0.4), inset 0 1px 0 0 oklch(1 0 0 / 0.04);
+  --shadow-md: 0 4px 12px -2px oklch(0 0 0 / 0.5), inset 0 1px 0 0 oklch(1 0 0 / 0.05);
+  --shadow-lg: 0 12px 32px -8px oklch(0 0 0 / 0.6), inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+  --shadow-xl: 0 24px 64px -16px oklch(0 0 0 / 0.7), inset 0 1px 0 0 oklch(1 0 0 / 0.07);
+  --shadow-glow:
+    0 0 0 1px oklch(0.714 0.176 295 / 0.24), 0 8px 32px -8px oklch(0.606 0.23 295 / 0.45);
+}
+
+/* --------------------------------------------------------------------------
+   4. EXPOSITION À TAILWIND
+   `inline` est indispensable : sans lui, Tailwind fige la valeur des variables
+   au build et les utilitaires `bg-background` garderaient la couleur du thème
+   clair même sous `.dark`.
+   -------------------------------------------------------------------------- */
+@theme inline {
+  /* Typographie — Poppins est injectée par next/font côté application. */
+  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  /* Couleurs sémantiques */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-live: var(--live);
+  --color-live-foreground: var(--live-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Palette de marque, accessible directement : `text-violet-500`, etc. */
+  --color-violet-50: var(--matchly-violet-50);
+  --color-violet-100: var(--matchly-violet-100);
+  --color-violet-200: var(--matchly-violet-200);
+  --color-violet-300: var(--matchly-violet-300);
+  --color-violet-400: var(--matchly-violet-400);
+  --color-violet-500: var(--matchly-violet-500);
+  --color-violet-600: var(--matchly-violet-600);
+  --color-violet-700: var(--matchly-violet-700);
+  --color-violet-800: var(--matchly-violet-800);
+  --color-violet-900: var(--matchly-violet-900);
+  --color-violet-950: var(--matchly-violet-950);
+
+  --color-blue-50: var(--matchly-blue-50);
+  --color-blue-100: var(--matchly-blue-100);
+  --color-blue-200: var(--matchly-blue-200);
+  --color-blue-300: var(--matchly-blue-300);
+  --color-blue-400: var(--matchly-blue-400);
+  --color-blue-500: var(--matchly-blue-500);
+  --color-blue-600: var(--matchly-blue-600);
+  --color-blue-700: var(--matchly-blue-700);
+  --color-blue-800: var(--matchly-blue-800);
+  --color-blue-900: var(--matchly-blue-900);
+  --color-blue-950: var(--matchly-blue-950);
+
+  --color-cyan-50: var(--matchly-cyan-50);
+  --color-cyan-100: var(--matchly-cyan-100);
+  --color-cyan-200: var(--matchly-cyan-200);
+  --color-cyan-300: var(--matchly-cyan-300);
+  --color-cyan-400: var(--matchly-cyan-400);
+  --color-cyan-500: var(--matchly-cyan-500);
+  --color-cyan-600: var(--matchly-cyan-600);
+  --color-cyan-700: var(--matchly-cyan-700);
+  --color-cyan-800: var(--matchly-cyan-800);
+  --color-cyan-900: var(--matchly-cyan-900);
+  --color-cyan-950: var(--matchly-cyan-950);
+
+  /* Rayons — dérivés d'une seule valeur pour rester cohérents. */
+  --radius-xs: calc(var(--radius) - 6px);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 12px);
+  --radius-3xl: calc(var(--radius) + 20px);
+
+  /* Élévations */
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-glow: var(--shadow-glow);
+
+  /* Courbes d'animation. `--ease-out-expo` est la signature Matchly : départ
+     très rapide puis décélération longue, ce qui donne la sensation de
+     réactivité recherchée sur les transitions d'interface. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Animations nommées */
+  --animate-fade-in: fade-in 0.4s var(--ease-out-quart) both;
+  --animate-fade-up: fade-up 0.5s var(--ease-out-expo) both;
+  --animate-scale-in: scale-in 0.2s var(--ease-out-expo) both;
+  --animate-live-pulse: live-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-shimmer: shimmer 2s linear infinite;
+  --animate-gradient-pan: gradient-pan 8s ease-in-out infinite;
+}
+
+/* --------------------------------------------------------------------------
+   5. KEYFRAMES
+   -------------------------------------------------------------------------- */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 1rem, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Halo du badge « direct ». L'opacité descend à 0 pour que le halo disparaisse
+   complètement entre deux battements : un pouls, pas un clignotement. */
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0;
+    transform: scale(2.2);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes gradient-pan {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   6. BASE
+   -------------------------------------------------------------------------- */
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    /* Décale les ancres sous l'en-tête collant. */
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /*
+   * Anneau de focus visible et homogène.
+   * `:focus-visible` plutôt que `:focus` : le clavier voit l'anneau, la souris
+   * ne le voit pas. Supprimer l'outline sans ce remplacement rendrait le site
+   * inutilisable au clavier (WCAG 2.4.7).
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+
+  /* Respect de la préférence système « animations réduites » (WCAG 2.3.3). */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    ::after,
+    ::before {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* Barres de défilement discrètes, accordées au thème. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border: 2px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--color-muted-foreground);
+  }
+
+  /* Sélection aux couleurs de la marque. */
+  ::selection {
+    background-color: var(--matchly-violet-500);
+    color: var(--matchly-neutral-0);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   7. UTILITAIRES DE MARQUE
+   -------------------------------------------------------------------------- */
+
+/* Texte rempli par le dégradé de marque. */
+@utility text-gradient-brand {
+  background-image: var(--gradient-brand);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  /* Sans cela, la police paraît plus fine une fois le texte transparent. */
+  -webkit-text-fill-color: transparent;
+}
+
+/* Fond dégradé de marque. */
+@utility bg-gradient-brand {
+  background-image: var(--gradient-brand);
+}
+
+@utility bg-gradient-brand-soft {
+  background-image: var(--gradient-brand-soft);
+}
+
+/* Surface vitrée de l'en-tête et des surcouches. */
+@utility glass {
+  background-color: color-mix(in oklab, var(--color-background) 72%, transparent);
+  backdrop-filter: blur(16px) saturate(180%);
+  -webkit-backdrop-filter: blur(16px) saturate(180%);
+}
+
+/* Bordure dégradée, impossible à obtenir avec `border-image` sur un rayon. */
+@utility border-gradient-brand {
+  position: relative;
+  background-clip: padding-box;
+  border: 1px solid transparent;
+
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    margin: -1px;
+    border-radius: inherit;
+    background: var(--gradient-brand);
+  }
+}

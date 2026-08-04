@@ -1,0 +1,16 @@
+{
+  "extends": "@matchly/config/typescript/react-library.json",
+  "compilerOptions": {
+    // Le paquet est consommé en source par l'application hôte : rien à émettre.
+    // `rootDir` est retiré pour que les fichiers d'outillage restés à la racine
+    // du paquet soient eux aussi vérifiés.
+    "noEmit": true,
+    "rootDir": null,
+    "outDir": null,
+    "declaration": false,
+    "declarationMap": false,
+    "types": ["vitest/globals", "@testing-library/jest-dom"]
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "vitest.setup.ts", "vitest.config.mts"],
+  "exclude": ["node_modules", "dist"]
+}
