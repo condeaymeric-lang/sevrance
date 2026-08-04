@@ -507,6 +507,48 @@
 }
 
 /* --------------------------------------------------------------------------
+   8. RÉVÉLATION AU DÉFILEMENT
+   --------------------------------------------------------------------------
+   Entièrement en CSS, et c'est un choix d'architecture, pas une commodité.
+
+   Une révélation pilotée par JavaScript — Framer Motion, IntersectionObserver
+   ou autre — impose au serveur d'émettre l'état masqué (`opacity: 0`), puisque
+   `prefers-reduced-motion` n'est lisible que dans un navigateur. Deux
+   conséquences, toutes deux graves :
+
+     - l'utilisateur qui demande moins d'animations reçoit quand même du HTML
+       transparent, et rien ne garantit que l'hydratation le nettoie — React ne
+       retire pas un attribut `style` présent côté serveur et absent côté
+       client. La page reste vide pour exactement ceux qu'on voulait ménager ;
+     - si le JavaScript échoue ou tarde, le contenu ne s'affiche jamais.
+
+   En CSS, l'état masqué vit à l'intérieur de
+   `@media (prefers-reduced-motion: no-preference)`. Il n'existe donc tout
+   simplement pas pour qui a exprimé la préférence, et le HTML servi est
+   toujours visible.
+
+   `animation-timeline: view()` lie la progression au défilement là où le
+   navigateur le sait faire. Ailleurs, la règle est ignorée et l'animation se
+   joue une fois au chargement : le contenu apparaît de toute façon.
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: no-preference) {
+  [data-reveal] {
+    animation: fade-up 0.6s var(--ease-out-expo) both;
+    animation-delay: var(--reveal-delay, 0s);
+  }
+
+  @supports (animation-timeline: view()) {
+    [data-reveal] {
+      /* Un délai n'a aucun sens sur une timeline de défilement : la position
+         dans la page tient déjà lieu d'échelonnement. */
+      animation-delay: 0s;
+      animation-timeline: view();
+      animation-range: entry 0% cover 28%;
+    }
+  }
+}
+
+/* --------------------------------------------------------------------------
    7. UTILITAIRES DE MARQUE
    -------------------------------------------------------------------------- */
 

@@ -13,11 +13,21 @@
 
 // --- Utilitaires -----------------------------------------------------------
 export { cn } from './lib/cn';
+export { initials } from './lib/initials';
+
+/**
+ * Variantes des composants clients.
+ *
+ * Exportées depuis un module neutre : voir `src/variants.ts` pour la raison.
+ * Un Server Component peut donc appeler `buttonVariants(...)` pour styler un
+ * lien sans franchir de frontière client.
+ */
+export { avatarVariants, buttonVariants, sheetVariants } from './variants';
 
 // --- Primitives ------------------------------------------------------------
-export { Avatar, AvatarFallback, AvatarImage, avatarVariants, initials } from './components/avatar';
+export { Avatar, AvatarFallback, AvatarImage } from './components/avatar';
 export { Badge, badgeVariants } from './components/badge';
-export { Button, buttonVariants } from './components/button';
+export { Button } from './components/button';
 export {
   Card,
   CardContent,
@@ -70,7 +80,6 @@ export {
   SheetHeader,
   SheetTitle,
   SheetTrigger,
-  sheetVariants,
 } from './components/sheet';
 export { Skeleton } from './components/skeleton';
 export { Spinner } from './components/spinner';

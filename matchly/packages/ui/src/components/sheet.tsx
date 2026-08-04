@@ -1,33 +1,12 @@
 'use client';
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { cva, type VariantProps } from 'class-variance-authority';
+import type { VariantProps } from 'class-variance-authority';
 import { X } from 'lucide-react';
 import type * as React from 'react';
 
 import { cn } from '../lib/cn';
-
-const sheetVariants = cva(
-  [
-    'fixed z-50 flex flex-col gap-4 bg-popover text-popover-foreground shadow-xl',
-    'transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
-  ],
-  {
-    variants: {
-      side: {
-        top: 'inset-x-0 top-0 h-auto max-h-[85dvh] border-b border-border data-[state=closed]:-translate-y-full',
-        bottom:
-          'inset-x-0 bottom-0 h-auto max-h-[85dvh] rounded-t-2xl border-t border-border data-[state=closed]:translate-y-full',
-        left: 'inset-y-0 left-0 h-full w-3/4 max-w-sm border-r border-border data-[state=closed]:-translate-x-full',
-        right:
-          'inset-y-0 right-0 h-full w-3/4 max-w-sm border-l border-border data-[state=closed]:translate-x-full',
-      },
-    },
-    defaultVariants: {
-      side: 'right',
-    },
-  },
-);
+import { sheetVariants } from '../variants';
 
 /**
  * Panneau latéral coulissant.

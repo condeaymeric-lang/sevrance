@@ -22,6 +22,44 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 });
 
+/**
+ * jsdom n'implémente pas `IntersectionObserver`, dont Framer Motion se sert
+ * pour `whileInView`. Le doublon signale immédiatement l'intersection : les
+ * composants révélés au défilement sont donc testés dans leur état final,
+ * qui est celui que l'utilisateur finit par voir.
+ */
+class IntersectionObserverStub implements IntersectionObserver {
+  readonly root: Element | Document | null = null;
+  readonly rootMargin: string = '';
+  readonly thresholds: readonly number[] = [];
+
+  constructor(private readonly callback: IntersectionObserverCallback) {}
+
+  observe(target: Element): void {
+    this.callback(
+      [{ isIntersecting: true, target } as IntersectionObserverEntry],
+      this as IntersectionObserver,
+    );
+  }
+
+  unobserve(): void {}
+  disconnect(): void {}
+  takeRecords(): IntersectionObserverEntry[] {
+    return [];
+  }
+}
+
+Object.defineProperty(window, 'IntersectionObserver', {
+  writable: true,
+  configurable: true,
+  value: IntersectionObserverStub,
+});
+Object.defineProperty(globalThis, 'IntersectionObserver', {
+  writable: true,
+  configurable: true,
+  value: IntersectionObserverStub,
+});
+
 class ResizeObserverStub {
   observe(): void {}
   unobserve(): void {}

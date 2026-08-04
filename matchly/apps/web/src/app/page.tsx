@@ -1,123 +1,58 @@
-import { Badge, Button, Card, CardContent, Container, Section } from '@matchly/ui';
 import type { Metadata } from 'next';
-import Link from 'next/link';
 
-import { siteConfig } from '@/config/site';
+import { ClubsSection } from '@/components/landing/clubs-section';
+import { CompetitionsSection } from '@/components/landing/competitions-section';
+import { DownloadSection } from '@/components/landing/download-section';
+import { FinalCta } from '@/components/landing/final-cta';
+import { Hero } from '@/components/landing/hero';
+import { LiveSection } from '@/components/landing/live-section';
 import { buildMetadata } from '@/lib/seo';
+import { organizationSchema, serializeJsonLd, websiteSchema } from '@/lib/structured-data';
 
-export const metadata: Metadata = buildMetadata({ path: '/' });
-
-/**
- * Piliers du produit.
- *
- * Repris de la thèse fondatrice de Matchly : quatre usages que le sport amateur
- * n'a aujourd'hui nulle part, réunis sur une seule plateforme.
- */
-const PILLARS = [
-  {
-    title: 'Diffuser',
-    description:
-      'Chaque club diffuse ses matchs depuis un téléphone ou une caméra, sans régie ni budget.',
-  },
-  {
-    title: 'Suivre',
-    description:
-      'Scores en direct, calendriers et classements de toutes les compétitions amateurs.',
-  },
-  {
-    title: 'Exister',
-    description:
-      'Un profil pour chaque joueur, chaque équipe, chaque club — et un palmarès qui les suit.',
-  },
-  {
-    title: 'Revivre',
-    description:
-      'Replays, temps forts et résumés automatiques, disponibles dès le coup de sifflet.',
-  },
-] as const;
+export const metadata: Metadata = buildMetadata({
+  path: '/',
+  description:
+    'Matchly diffuse, classe et archive le sport amateur. Matchs en direct, classements tenus à ' +
+    'jour, profils de clubs et replays — gratuitement, pour tous les clubs amateurs.',
+});
 
 /**
- * Page d'accueil du Sprint 0.
+ * Landing page.
  *
- * Elle affiche l'ossature — en-tête, thème, typographie, Design System — et
- * l'ambition du produit, sans anticiper la landing page du Sprint 1. Le
- * découpage par sprints n'aurait aucune valeur si le Sprint 0 livrait déjà
- * l'écran du Sprint 1.
+ * Server Component de bout en bout : seuls les composants `Reveal` — qui
+ * observent le défilement — franchissent la frontière client. Le premier écran
+ * ne dépend donc d'aucun JavaScript pour s'afficher.
+ *
+ * Les sections portent un `id` (`#direct`, `#clubs`, `#competitions`,
+ * `#application`) : le pied de page et de futures campagnes pourront pointer
+ * directement dessus, et `scroll-padding-top` les décale déjà sous l'en-tête
+ * collant.
  */
 export default function HomePage() {
   return (
     <>
-      <Section spacing="lg" className="overflow-hidden pb-12 sm:pb-16 lg:pb-20">
-        {/*
-         * Halo de marque : décoratif, donc hors de l'arbre d'accessibilité.
-         *
-         * L'opacité est plus basse en thème clair qu'en sombre, à rebours de
-         * l'intuition. Sur fond blanc, le dégradé teinte la surface sous le
-         * texte et fait chuter le contraste du paragraphe en `muted-foreground`
-         * ; sur fond noir il ne fait qu'éclaircir un vide. Le halo est aussi
-         * remonté pour couronner le titre au lieu de recouvrir l'accroche.
-         */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-64 -z-10 flex justify-center opacity-[0.18] blur-3xl dark:opacity-30"
-        >
-          <div className="aspect-[1.6] w-[64rem] bg-gradient-brand [clip-path:ellipse(50%_40%_at_50%_50%)]" />
-        </div>
+      {/*
+       * Données structurées. Injectées ici plutôt que dans le layout racine :
+       * `WebSite` ne doit être déclaré que sur la page d'accueil, sa
+       * répétition sur chaque page brouillant l'entité aux yeux des moteurs.
+       */}
+      <script
+        type="application/ld+json"
+        // Le contenu est produit par notre code et échappé par
+        // `serializeJsonLd` ; aucune donnée utilisateur n'y transite.
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(organizationSchema()) }}
+      />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(websiteSchema()) }}
+      />
 
-        <Container size="md" className="flex flex-col items-center text-center">
-          <Badge variant="brand">Sprint 0 — architecture et Design System</Badge>
-
-          <h1 className="mt-8 text-5xl font-semibold tracking-tight text-balance sm:text-6xl lg:text-7xl">
-            Chaque match
-            <br />
-            <span className="text-gradient-brand">mérite son public.</span>
-          </h1>
-
-          <p className="mt-6 max-w-2xl text-lg text-balance text-muted-foreground sm:text-xl">
-            {siteConfig.description}
-          </p>
-
-          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
-            <Button asChild size="lg" variant="gradient">
-              <Link href="/design-system">Explorer le Design System</Link>
-            </Button>
-            <Button asChild size="lg" variant="outline">
-              <Link href="/live">Voir le direct</Link>
-            </Button>
-          </div>
-        </Container>
-      </Section>
-
-      <Section spacing="md">
-        <Container>
-          <h2 className="text-3xl font-semibold tracking-tight text-balance sm:text-4xl">
-            Quatre usages, une seule plateforme
-          </h2>
-          <p className="mt-3 max-w-2xl text-muted-foreground">
-            Le sport amateur produit des millions de matchs par an. Presque aucun n’est diffusé,
-            classé ou archivé. Matchly comble ces quatre manques d’un coup.
-          </p>
-
-          <ul className="mt-10 grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-            {PILLARS.map((pillar, index) => (
-              <li key={pillar.title}>
-                <Card className="h-full">
-                  <CardContent className="flex h-full flex-col gap-3 p-6">
-                    <span
-                      aria-hidden
-                      className="text-gradient-brand text-sm font-semibold tabular-nums"
-                    >
-                      {String(index + 1).padStart(2, '0')}
-                    </span>
-                    <h3 className="text-lg font-semibold">{pillar.title}</h3>
-                    <p className="text-sm text-muted-foreground">{pillar.description}</p>
-                  </CardContent>
-                </Card>
-              </li>
-            ))}
-          </ul>
-        </Container>
-      </Section>
+      <Hero />
+      <LiveSection />
+      <ClubsSection />
+      <CompetitionsSection />
+      <DownloadSection />
+      <FinalCta />
     </>
   );
 }
