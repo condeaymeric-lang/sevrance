@@ -5,6 +5,8 @@ node_modules/
 
 # Build output
 .next/
+# Régénéré par chaque `next build` : le suivre ne produirait que du bruit.
+next-env.d.ts
 out/
 dist/
 build/

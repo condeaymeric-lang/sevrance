@@ -47,11 +47,19 @@ const PILLARS = [
 export default function HomePage() {
   return (
     <>
-      <Section spacing="lg" className="overflow-hidden">
-        {/* Halo de marque : décoratif, donc hors de l'arbre d'accessibilité. */}
+      <Section spacing="lg" className="overflow-hidden pb-12 sm:pb-16 lg:pb-20">
+        {/*
+         * Halo de marque : décoratif, donc hors de l'arbre d'accessibilité.
+         *
+         * L'opacité est plus basse en thème clair qu'en sombre, à rebours de
+         * l'intuition. Sur fond blanc, le dégradé teinte la surface sous le
+         * texte et fait chuter le contraste du paragraphe en `muted-foreground`
+         * ; sur fond noir il ne fait qu'éclaircir un vide. Le halo est aussi
+         * remonté pour couronner le titre au lieu de recouvrir l'accroche.
+         */}
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-x-0 -top-40 -z-10 flex justify-center opacity-40 blur-3xl dark:opacity-30"
+          className="pointer-events-none absolute inset-x-0 -top-64 -z-10 flex justify-center opacity-[0.18] blur-3xl dark:opacity-30"
         >
           <div className="aspect-[1.6] w-[64rem] bg-gradient-brand [clip-path:ellipse(50%_40%_at_50%_50%)]" />
         </div>
