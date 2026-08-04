@@ -1,0 +1,11 @@
+node_modules
+.next
+.turbo
+dist
+build
+coverage
+package-lock.json
+*.min.*
+apps/api/prisma/migrations
+# Généré par Next à chaque build, et réécrit sitôt formaté.
+apps/web/next-env.d.ts

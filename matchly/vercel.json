@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "nextjs",
+  "installCommand": "npm ci",
+  "buildCommand": "npx turbo run build --filter=@matchly/web...",
+  "outputDirectory": "apps/web/.next",
+  "regions": ["cdg1"],
+  "github": {
+    "silent": true
+  }
+}

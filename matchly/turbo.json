@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "globalDependencies": [
+    "**/.env.*local",
+    "packages/config/typescript/*.json",
+    "packages/config/eslint/*.mjs"
+  ],
+  "globalEnv": ["NODE_ENV", "CI", "VERCEL", "VERCEL_ENV", "VERCEL_URL"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "!.next/cache/**", "dist/**", "build/**"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "test:watch": {
+      "cache": false,
+      "persistent": true
+    },
+    "clean": {
+      "cache": false
+    }
+  }
+}

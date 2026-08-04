@@ -1,0 +1,15 @@
+{
+  "extends": "@matchly/config/typescript/nestjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    // `rootDir` n'est déclaré que dans tsconfig.build.json : ici, le programme
+    // couvre aussi les fichiers d'outillage restés à la racine du paquet
+    // (prisma.config.ts, vitest.config.mts), qui doivent être typés eux aussi.
+    "rootDir": null,
+    "outDir": null,
+    "noEmit": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "prisma.config.ts", "vitest.config.mts"],
+  "exclude": ["node_modules", "dist"]
+}

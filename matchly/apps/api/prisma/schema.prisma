@@ -1,0 +1,404 @@
+// =============================================================================
+// MATCHLY — schéma de base de données
+// -----------------------------------------------------------------------------
+// Modèle de domaine initial du Sprint 0. Aucune logique métier ne s'appuie
+// encore dessus : il fixe le vocabulaire, les relations et les index sur
+// lesquels les sprints suivants viendront construire.
+//
+// Trois principes gouvernent ce schéma.
+//
+// 1. Clés primaires en UUID v7. Un UUID v4 est aléatoire : chaque insertion
+//    tombe à un endroit imprévisible de l'index B-tree, qui se fragmente et
+//    dont les pages chaudes cessent de tenir en cache. Un UUID v7 commence par
+//    un horodatage, donc les insertions restent quasi séquentielles — on garde
+//    l'avantage d'un identifiant non devinable, sans le coût d'écriture.
+//
+// 2. Un index pour chaque chemin de lecture connu. Sur des tables destinées à
+//    dépasser le million de lignes, un index manquant ne se voit pas en
+//    développement et devient un incident en production.
+//
+// 3. Suppressions restreintes par défaut. Supprimer un club ne doit pas effacer
+//    silencieusement l'historique des matchs de ses équipes : l'archive est le
+//    produit. Seules les relations réellement possédées cascadent.
+// =============================================================================
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// Énumérations — miroir exact de `@matchly/contracts`.
+// Toute valeur ajoutée ici doit l'être aussi dans le paquet de contrats.
+// -----------------------------------------------------------------------------
+
+enum Sport {
+  football
+  futsal
+  basketball
+  handball
+  rugby
+  volleyball
+  hockey
+  tennis
+  badminton
+  padel
+  water_polo
+  american_football
+  baseball
+  cricket
+  ice_hockey
+  other
+}
+
+enum MatchStatus {
+  scheduled
+  live
+  half_time
+  finished
+  postponed
+  cancelled
+}
+
+enum StreamStatus {
+  idle
+  connecting
+  live
+  ended
+  errored
+}
+
+enum ClubRole {
+  supporter
+  player
+  coach
+  manager
+  owner
+}
+
+enum CompetitionFormat {
+  league
+  knockout
+  group_stage_knockout
+  friendly
+}
+
+enum Visibility {
+  public
+  unlisted
+  private
+}
+
+enum OAuthProvider {
+  google
+  apple
+}
+
+// -----------------------------------------------------------------------------
+// Identité
+// -----------------------------------------------------------------------------
+
+model User {
+  id          String @id @default(uuid(7)) @db.Uuid
+  /// Toujours stocké en minuscules — la normalisation est faite par le schéma
+  /// Zod partagé, sans quoi l'unicité serait contournable par la casse.
+  email       String @unique
+  /// Identifiant public de profil : `/u/amelie-dubois`.
+  slug        String @unique
+  displayName String @db.VarChar(80)
+
+  avatarUrl   String?
+  bio         String? @db.VarChar(500)
+  countryCode String? @db.Char(2)
+
+  /// `null` tant que l'adresse n'a pas été confirmée.
+  emailVerifiedAt DateTime?
+
+  /// Empreinte Argon2id du mot de passe.
+  ///
+  /// Nullable, et ce n'est pas un oubli : un compte créé via Google ou Apple
+  /// n'a jamais eu de mot de passe. Le rendre obligatoire forcerait à inventer
+  /// une valeur factice — que quelqu'un finirait par comparer.
+  passwordHash String?
+
+  lastLoginAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  ownedClubs  Club[]           @relation("ClubOwner")
+  memberships ClubMembership[]
+  sessions    Session[]
+  accounts    Account[]
+
+  /// Le tri des annuaires se fait par date de création décroissante.
+  @@index([createdAt])
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// Sessions et comptes tiers
+// -----------------------------------------------------------------------------
+
+model Session {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  /// Empreinte SHA-256 du jeton de session, jamais le jeton lui-même.
+  ///
+  /// Un vol de base ne donne alors aucune session utilisable : l'attaquant
+  /// obtient des empreintes, et le cookie attendu est l'antécédent. C'est le
+  /// même raisonnement que pour un mot de passe, avec une différence : un jeton
+  /// de session étant déjà 32 octets aléatoires, SHA-256 suffit — le coût
+  /// d'Argon2 ne protégerait de rien puisqu'il n'y a pas d'attaque par
+  /// dictionnaire possible sur une valeur sans structure.
+  tokenHash String @unique
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Description dérivée du User-Agent, pour la liste des appareils connectés.
+  userAgent String? @db.VarChar(400)
+  ipAddress String? @db.VarChar(45)
+
+  createdAt  DateTime @default(now())
+  /// Mis à jour au plus une fois par heure : écrire à chaque requête
+  /// transformerait chaque lecture authentifiée en écriture.
+  lastSeenAt DateTime @default(now())
+  expiresAt  DateTime
+
+  /// Renseigné à la déconnexion. La ligne est conservée : savoir qu'une session
+  /// a été révoquée, et quand, a une valeur d'audit qu'une suppression détruit.
+  revokedAt DateTime?
+
+  /// Sert la purge des sessions expirées.
+  @@index([expiresAt])
+  /// Sert « lister mes appareils » et « me déconnecter partout ».
+  @@index([userId, revokedAt])
+  @@map("sessions")
+}
+
+model Account {
+  id String @id @default(uuid(7)) @db.Uuid
+
+  provider          OAuthProvider
+  /// Identifiant stable de l'utilisateur chez le fournisseur (`sub` OIDC).
+  providerAccountId String
+
+  userId String @db.Uuid
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Un compte tiers ne peut être rattaché qu'à un seul utilisateur Matchly.
+  @@unique([provider, providerAccountId])
+  /// Un utilisateur ne lie qu'une fois chaque fournisseur.
+  @@unique([userId, provider])
+  @@map("accounts")
+}
+
+// -----------------------------------------------------------------------------
+// Clubs et équipes
+// -----------------------------------------------------------------------------
+
+model Club {
+  id          String     @id @default(uuid(7)) @db.Uuid
+  slug        String     @unique
+  name        String     @db.VarChar(80)
+  sport       Sport
+  description String?    @db.VarChar(2000)
+  logoUrl     String?
+  bannerUrl   String?
+  countryCode String?    @db.Char(2)
+  city        String?    @db.VarChar(120)
+  visibility  Visibility @default(public)
+
+  ownerId String @db.Uuid
+  owner   User   @relation("ClubOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  teams              Team[]
+  members            ClubMembership[]
+  organizedCompetitions Competition[] @relation("CompetitionOrganizer")
+
+  /// Index composite : l'annuaire filtre presque toujours sport + pays ensemble.
+  @@index([sport, countryCode])
+  @@index([ownerId])
+  @@index([createdAt])
+  @@map("clubs")
+}
+
+model ClubMembership {
+  id     String   @id @default(uuid(7)) @db.Uuid
+  clubId String   @db.Uuid
+  userId String   @db.Uuid
+  role   ClubRole @default(supporter)
+
+  joinedAt DateTime @default(now())
+
+  club Club @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Une seule adhésion par couple (club, utilisateur).
+  @@unique([clubId, userId])
+  /// Sert la question « quels clubs pour cet utilisateur ? ».
+  @@index([userId])
+  /// Sert la question « qui sont les encadrants de ce club ? ».
+  @@index([clubId, role])
+  @@map("club_memberships")
+}
+
+model Team {
+  id   String @id @default(uuid(7)) @db.Uuid
+  name String @db.VarChar(80)
+  slug String
+
+  /// Catégorie d'âge ou niveau : « Sénior A », « U17 », « Loisir ».
+  category String? @db.VarChar(60)
+  sport    Sport
+
+  clubId String @db.Uuid
+  club   Club   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  competitionEntries CompetitionEntry[]
+  homeMatches        Match[]            @relation("HomeTeam")
+  awayMatches        Match[]            @relation("AwayTeam")
+
+  /// Le slug n'est unique qu'au sein d'un club : deux clubs peuvent tous deux
+  /// avoir une équipe « senior-a ».
+  @@unique([clubId, slug])
+  @@index([clubId])
+  @@map("teams")
+}
+
+// -----------------------------------------------------------------------------
+// Compétitions
+// -----------------------------------------------------------------------------
+
+model Competition {
+  id     String            @id @default(uuid(7)) @db.Uuid
+  slug   String            @unique
+  name   String            @db.VarChar(120)
+  sport  Sport
+  format CompetitionFormat @default(league)
+
+  /// Libellé de saison, tel qu'affiché : « 2025-2026 ».
+  seasonLabel String?  @db.VarChar(20)
+  startDate   DateTime?
+  endDate     DateTime?
+
+  visibility Visibility @default(public)
+
+  /// Le club organisateur est facultatif : une fédération ou Matchly peut
+  /// héberger une compétition sans qu'aucun club n'en soit propriétaire.
+  organizerClubId String? @db.Uuid
+  organizerClub   Club?   @relation("CompetitionOrganizer", fields: [organizerClubId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries CompetitionEntry[]
+  matches Match[]
+
+  @@index([sport, startDate])
+  @@index([organizerClubId])
+  @@map("competitions")
+}
+
+model CompetitionEntry {
+  id            String @id @default(uuid(7)) @db.Uuid
+  competitionId String @db.Uuid
+  teamId        String @db.Uuid
+
+  registeredAt DateTime @default(now())
+
+  competition Competition @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+  team        Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([competitionId, teamId])
+  @@index([teamId])
+  @@map("competition_entries")
+}
+
+// -----------------------------------------------------------------------------
+// Matchs
+// -----------------------------------------------------------------------------
+
+model Match {
+  id     String      @id @default(uuid(7)) @db.Uuid
+  status MatchStatus @default(scheduled)
+
+  /// Un match amical n'appartient à aucune compétition.
+  competitionId String?      @db.Uuid
+  competition   Competition? @relation(fields: [competitionId], references: [id], onDelete: SetNull)
+
+  homeTeamId String @db.Uuid
+  awayTeamId String @db.Uuid
+  homeTeam   Team   @relation("HomeTeam", fields: [homeTeamId], references: [id], onDelete: Restrict)
+  awayTeam   Team   @relation("AwayTeam", fields: [awayTeamId], references: [id], onDelete: Restrict)
+
+  /// Scores nuls tant que la rencontre n'a pas commencé — un 0-0 avant le coup
+  /// d'envoi est une information différente d'un score inconnu.
+  homeScore Int?
+  awayScore Int?
+
+  scheduledAt DateTime
+  startedAt   DateTime?
+  endedAt     DateTime?
+
+  venue String? @db.VarChar(160)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stream Stream?
+
+  /// Chemin de lecture principal : « les matchs en direct, les plus récents
+  /// d'abord ». L'index composite couvre le filtre et le tri d'un seul coup.
+  @@index([status, scheduledAt])
+  @@index([competitionId, scheduledAt])
+  @@index([homeTeamId, scheduledAt])
+  @@index([awayTeamId, scheduledAt])
+  @@map("matches")
+}
+
+// -----------------------------------------------------------------------------
+// Diffusion
+// -----------------------------------------------------------------------------
+
+model Stream {
+  id     String       @id @default(uuid(7)) @db.Uuid
+  status StreamStatus @default(idle)
+
+  /// Un match n'a qu'un flux : la relation est donc un un-à-un.
+  matchId String @unique @db.Uuid
+  match   Match  @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  /// Secret d'ingestion RTMP. Jamais exposé publiquement : quiconque le détient
+  /// peut diffuser sur le flux. Il est régénérable indépendamment du match.
+  ingestKey String @unique
+
+  /// Identifiant public de lecture, sûr à publier dans une URL HLS ou WHEP.
+  playbackId String @unique
+
+  startedAt DateTime?
+  endedAt   DateTime?
+
+  /// Pic de spectateurs simultanés, figé à la fin de la diffusion.
+  peakViewers Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@map("streams")
+}

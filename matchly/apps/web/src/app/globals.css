@@ -1,0 +1,17 @@
+/*
+ * Feuille de style racine de l'application web.
+ *
+ * L'ordre des trois instructions ci-dessous compte :
+ *   1. Tailwind installe ses couches (`theme`, `base`, `components`, `utilities`) ;
+ *   2. les tokens Matchly s'y greffent via `@theme inline` et `@utility` ;
+ *   3. `@source` indique à Tailwind d'analyser aussi le Design System.
+ *
+ * Sans le troisième point, toutes les classes utilisées uniquement à
+ * l'intérieur de `@matchly/ui` seraient absentes du CSS final : Tailwind 4
+ * exclut `node_modules` de sa détection automatique, et le paquet y est lié
+ * symboliquement par npm workspaces.
+ */
+@import 'tailwindcss';
+@import '@matchly/ui/tokens.css';
+
+@source '../../../../packages/ui/src';

@@ -1,0 +1,125 @@
+# =============================================================================
+# MATCHLY — configuration MediaMTX (développement)
+# -----------------------------------------------------------------------------
+# MediaMTX reçoit les flux des diffuseurs et les restitue aux spectateurs, dans
+# plusieurs protocoles à partir d'une seule ingestion.
+#
+# Chaîne visée :
+#
+#   Diffuseur (OBS, mobile)
+#        │  RTMP  :1935
+#        ▼
+#   MediaMTX ──┬── WebRTC/WHEP :8889   latence < 1 s   → lecteur par défaut
+#              └── HLS         :8888   latence 2-6 s   → repli universel
+#
+# Les deux sorties sont maintenues, et ce n'est pas une redondance : WebRTC
+# donne la latence indispensable au chat et au Match Center — commenter une
+# action déjà passée depuis six secondes ruine l'expérience — tandis que HLS
+# traverse les pare-feux d'entreprise, passe par les CDN et fonctionne sur les
+# téléviseurs connectés. Un match amateur se regarde depuis les deux.
+#
+# ATTENTION — cette configuration est destinée au DÉVELOPPEMENT LOCAL.
+# La publication et la lecture y sont anonymes. En production, `authInternalUsers`
+# doit être remplacé par `authHTTPAddress`, qui délègue à l'API Matchly la
+# vérification de la clé d'ingestion portée par le modèle `Stream`.
+# =============================================================================
+
+###############################################
+# Général
+
+logLevel: info
+logDestinations: [stdout]
+
+# Délai de lecture/écriture sur les sockets. Un diffuseur amateur en 4G perd
+# régulièrement la liaison : dix secondes évitent de couper le flux au premier
+# creux de réseau.
+readTimeout: 10s
+writeTimeout: 10s
+
+# Nombre de paquets conservés en tampon. Absorbe la gigue des réseaux mobiles.
+writeQueueSize: 512
+
+###############################################
+# API de contrôle
+
+api: yes
+apiAddress: :9997
+
+metrics: yes
+metricsAddress: :9998
+
+###############################################
+# Ingestion RTMP
+
+rtmp: yes
+rtmpAddress: :1935
+rtmpEncryption: 'no'
+
+###############################################
+# Diffusion HLS
+
+hls: yes
+hlsAddress: :8888
+# `lowLatency` active LL-HLS : segments partiels, latence divisée par trois
+# environ, au prix de requêtes plus nombreuses.
+hlsVariant: lowLatency
+hlsSegmentCount: 7
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsAllowOrigin: '*'
+# Les segments restent en mémoire : à ce débit, les écrire sur disque
+# saturerait les entrées/sorties sans bénéfice.
+hlsDirectory: ''
+
+###############################################
+# Diffusion WebRTC
+
+webrtc: yes
+webrtcAddress: :8889
+webrtcAllowOrigin: '*'
+webrtcLocalUDPAddress: :8189
+# En production, un serveur TURN est indispensable : sans lui, les spectateurs
+# derrière un NAT symétrique — typiquement en entreprise — ne reçoivent aucun
+# flux WebRTC et basculent sur HLS.
+webrtcICEServers2: []
+
+###############################################
+# RTSP — désactivé
+
+rtsp: no
+srt: no
+
+###############################################
+# Chemins
+
+pathDefaults:
+  source: publisher
+
+  # Aucun transcodage : MediaMTX relaie le flux tel quel. Le transcodage
+  # multi-qualité (ABR) sera confié à un service FFmpeg dédié au Sprint 5 —
+  # le faire ici mettrait la CPU du serveur média sur le chemin critique de
+  # l'ingestion, et une seule diffusion suffirait à dégrader toutes les autres.
+  runOnDemandRestart: no
+
+  # Enregistrement désactivé en développement. Le Sprint 6 (replays) l'activera
+  # avec fMP4, seul format qui permette de servir un replay sans réencodage.
+  record: no
+  recordPath: /recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+  recordFormat: fmp4
+  recordSegmentDuration: 1h
+  recordDeleteAfter: 168h
+
+paths:
+  # Espace de noms des matchs : `/live/<playbackId>`.
+  # Le `playbackId` du modèle Stream est public ; la clé d'ingestion, elle, ne
+  # l'est jamais — c'est ce qui permet de partager une URL de lecture sans
+  # donner le droit de diffuser.
+  ~^live/.*$:
+    source: publisher
+
+  # Chemin de test, pratique pour valider la chaîne sans passer par l'API.
+  #   ffmpeg -re -f lavfi -i testsrc=size=1280x720:rate=30 \
+  #          -c:v libx264 -preset veryfast -tune zerolatency \
+  #          -f flv rtmp://localhost:1935/test
+  test:
+    source: publisher

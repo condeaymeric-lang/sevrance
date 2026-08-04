@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Matchly — socle TypeScript",
+  "_comment": [
+    "Ce fichier est volontairement autonome : il n'`extends` rien en dehors du",
+    "paquet @matchly/config. Un chemin relatif remontant hors du paquet se",
+    "résout différemment selon l'outil — tsc suit le lien symbolique des",
+    "workspaces npm jusqu'au chemin réel, le resolver de Vite/Vitest le suit",
+    "depuis node_modules/ — et le `extends` casse d'un côté ou de l'autre.",
+    "Tout garder ici supprime la classe de bug entière."
+  ],
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
+    "exactOptionalPropertyTypes": false,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "noPropertyAccessFromIndexSignature": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": false,
+    "skipLibCheck": true,
+
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "incremental": true,
+
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "exclude": ["node_modules", "dist", ".next", ".turbo", "coverage"]
+}
