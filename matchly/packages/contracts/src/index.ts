@@ -8,6 +8,7 @@
  * Il ne doit contenir que des schémas, des types et des fonctions pures.
  */
 
+export * from './auth';
 export * from './enums';
 export * from './errors';
 export * from './pagination';
