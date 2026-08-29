@@ -19,3 +19,11 @@ tsconfig.tsbuildinfo
 
 # Le PDF vendu ne doit jamais être versionné ni exposé publiquement.
 private/*.pdf
+
+# Sorties du générateur 3D (tools/cadre_maillot_ol.py).
+sortie/
+
+# Python (générateur 3D).
+__pycache__/
+*.pyc
+.venv/
