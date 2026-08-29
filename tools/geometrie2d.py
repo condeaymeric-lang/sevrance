@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Briques 2D : contours de texte, tracé à la plume, maillage extrudé."""
+import math
 from fontTools.ttLib import TTFont
 from fontTools.pens.basePen import BasePen
 import numpy as np
@@ -258,3 +259,64 @@ def contours_du_dessus(V, T, eps=1e-6):
         if len(anneau) >= 3:
             contours.append([pts[i] for i in anneau])
     return contours
+
+
+# ---------------------------------------------------------------- arc de nom
+
+def ajuster_arc(points):
+    """Ajuste un cercle sur des points ; renvoie (cx, cy, rayon) ou None.
+
+    Sert à retrouver la courbure d'un nom floqué en arc de cercle. Renvoie
+    None si les points sont alignés (nom droit) : le cercle dégénère alors en
+    droite et son rayon part à l'infini.
+    """
+    if len(points) < 3:
+        return None
+    n = len(points)
+    sx = sum(p[0] for p in points); sy = sum(p[1] for p in points)
+    sxx = sum(p[0]**2 for p in points); syy = sum(p[1]**2 for p in points)
+    sxy = sum(p[0]*p[1] for p in points)
+    sxz = sum(p[0]*(p[0]**2 + p[1]**2) for p in points)
+    syz = sum(p[1]*(p[0]**2 + p[1]**2) for p in points)
+    sz = sum(p[0]**2 + p[1]**2 for p in points)
+    # système normal de l'ajustement algébrique x^2+y^2 + a x + b y + c = 0
+    A = [[sxx, sxy, sx], [sxy, syy, sy], [sx, sy, n]]
+    B = [-sxz, -syz, -sz]
+    det = (A[0][0]*(A[1][1]*A[2][2] - A[1][2]*A[2][1])
+           - A[0][1]*(A[1][0]*A[2][2] - A[1][2]*A[2][0])
+           + A[0][2]*(A[1][0]*A[2][1] - A[1][1]*A[2][0]))
+    if abs(det) < 1e-12:
+        return None
+    def remplace(k):
+        M = [ligne[:] for ligne in A]
+        for i in range(3):
+            M[i][k] = B[i]
+        return (M[0][0]*(M[1][1]*M[2][2] - M[1][2]*M[2][1])
+                - M[0][1]*(M[1][0]*M[2][2] - M[1][2]*M[2][0])
+                + M[0][2]*(M[1][0]*M[2][1] - M[1][1]*M[2][0])) / det
+    a, b, c = remplace(0), remplace(1), remplace(2)
+    cx, cy = -a / 2, -b / 2
+    r2 = cx*cx + cy*cy - c
+    if r2 <= 0:
+        return None
+    return cx, cy, math.sqrt(r2)
+
+
+def cintrer(groupes, rayon, y_base, x_centre):
+    """Courbe des contours sur un arc de cercle.
+
+    `y_base` est la ligne de base au sommet de l'arc, `x_centre` son abscisse.
+    Un rayon positif creuse l'arc vers le haut (lettres extérieures plus basses),
+    comme un flocage de maillot.
+    """
+    if not rayon:
+        return groupes
+    cy = y_base - rayon
+
+    def f(p):
+        theta = (p[0] - x_centre) / rayon
+        r = rayon + (p[1] - y_base)
+        return (x_centre + r * math.sin(theta), cy + r * math.cos(theta))
+
+    return [([f(p) for p in ext], [[f(p) for p in t] for t in trous])
+            for ext, trous in groupes]

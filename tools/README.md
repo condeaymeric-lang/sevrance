@@ -23,10 +23,11 @@ d'installer `fonttools`, `shapely`, `mapbox_earcut` et `numpy`.
 ## `personnaliser_maillot.py`
 
 Prend un projet Bambu Studio de cadre maillot dans lequel chaque élément est
-une pièce séparée, et n'en réécrit que trois maillages : le flocage au dos du
-maillot, le texte de la plaque et la signature. Tout le reste du projet —
+une pièce séparée, et n'en réécrit que les maillages concernés : le flocage au
+dos du maillot, le texte de la plaque et la signature. Tout le reste du projet —
 réglages d'impression, affectation des filaments, positions, plaques du cadre —
-est recopié à l'octet près.
+est recopié à l'octet près. Sur les deux modèles essayés, 28 des 30 ou 31
+fichiers de l'archive ressortent identiques octet pour octet.
 
 ```bash
 python tools/personnaliser_maillot.py source.3mf sortie.3mf \
@@ -45,14 +46,36 @@ Les valeurs par défaut sont en tête du script, dans le bloc `PARAMÈTRES`.
 
 ### Comment il se repère
 
-Rien n'est codé en dur en millimètres : le script **mesure la pièce d'origine**
-et cale la nouvelle dessus.
+Rien n'est codé en dur, ni les identifiants de pièces ni les millimètres. D'un
+modèle à l'autre les numéros changent, et les maillages sont tantôt dans
+`3D/3dmodel.model`, tantôt éclatés dans `3D/Objects/*.model` : le script gère
+les deux et retrouve les pièces à leur **place dans le cadre**.
+
+- Le fond et le maillot sont les deux plus grandes pièces.
+- La plaque et la signature sont les pièces situées sous le maillot, dans le bas
+  du cadre ; celles qui portent un `text_info` sont les lignes de la plaque.
+- Le flocage est la pièce posée sur le maillot qui compte le plus de triangles :
+  les rayures et liserés n'en font que quelques dizaines.
+
+Il **mesure** ensuite la pièce d'origine et cale la nouvelle dessus.
 
 - Le flocage est découpé en deux paquets de part et d'autre du plus grand vide
   horizontal : le nom au-dessus, le numéro en dessous.
 - La hauteur de capitale est la **médiane** des sommets de lettres, pour qu'un
   accent isolé (le `Ć` de `IBRAHIMOVIĆ`) ne fausse pas la mesure.
+- Si le nom d'origine est **cintré en arc** — c'est le cas de beaucoup de
+  maillots — un cercle est ajusté sur les pieds de lettres et le nouveau nom
+  est courbé sur le même rayon. Les accents sont exclus de cet ajustement :
+  leur pied n'est pas sur la ligne de base, et les laisser passer suffit à
+  inventer une courbure là où le nom est droit. La capitale est alors mesurée
+  sur la lettre du sommet de l'arc, la seule qui soit encore d'aplomb.
+- Les deux lignes de la plaque reçoivent la même taille de corps : la plus
+  petite des deux mesures, celle des lettres à sommet plat, les rondes
+  dépassant toujours un peu la ligne de capitale.
 - Ligne de base, cadrage et épaisseur sont repris de l'ancienne géométrie.
+
+Le repérage est affiché à chaque exécution, pour qu'une erreur se voie avant
+d'ouvrir le fichier.
 
 Le nouveau maillage est extrudé depuis les contours 2D (`geometrie2d.py`) :
 triangulation par `mapbox_earcut`, fusion des chevauchements par `shapely`.

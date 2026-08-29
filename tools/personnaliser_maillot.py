@@ -2,23 +2,23 @@
 # -*- coding: utf-8 -*-
 """Personnalise un cadre maillot 3MF (projet Bambu Studio) : nom, numéro, signature.
 
-Le fichier d'origine est un projet Bambu Studio dans lequel chaque élément est
-une pièce séparée (le maillot, les rayures, le nom au dos, la plaque, la
-signature...). On ne touche donc qu'aux maillages des pièces concernées :
-tout le reste du projet — réglages d'impression, affectation des filaments,
-positions — est repris tel quel.
+Ces projets rangent chaque élément dans une pièce séparée — le maillot, les
+rayures, le flocage au dos, chaque ligne de la plaque, la signature. Le script
+ne réécrit donc que les maillages concernés : tout le reste du projet, réglages
+d'impression, affectation des filaments, positions, plaques du cadre, est
+recopié à l'octet près.
 
-Ce que le script remplace :
-  * le nom floqué au dos du maillot          (pièce SVG « IBRAHIMOVIĆ 11 »)
-  * le numéro, si NUMERO est renseigné       (même pièce)
-  * les deux lignes de la plaque             (pièces texte « ZLATAN » / « IBRAHIMOVIĆ »)
-  * la signature                             (pièce SVG « Handtekening ... »)
+Rien n'est codé en dur, ni les identifiants de pièces ni les millimètres :
+le script repère les pièces d'après leur place dans le cadre (`reperer`) et
+mesure la géométrie d'origine pour caler la nouvelle dessus. Il accepte aussi
+bien les projets d'un seul tenant que ceux dont les maillages sont éclatés
+dans `3D/Objects/*.model`.
 
 La signature produite est une écriture inventée, fabriquée trait par trait
 par `signature_manuscrite` : elle ne reproduit l'autographe de personne.
 
 Dépendances :  pip install -r tools/requirements.txt
-Utilisation :  python tools/personnaliser_maillot.py source.3mf sortie.3mf
+Utilisation :  python tools/personnaliser_maillot.py source.3mf sortie.3mf --nom TATIN
 """
 import argparse
 import os
@@ -38,14 +38,14 @@ NOM_MAILLOT = "DURAND"      # floqué au dos du maillot
 NUMERO = None               # None = on garde le numéro d'origine ; sinon "9", "23"...
 
 PLAQUE_LIGNE_1 = ""         # prénom ; vide = une seule ligne, recentrée
-PLAQUE_LIGNE_2 = "DURAND"   # nom
+PLAQUE_LIGNE_2 = ""         # nom ; vide = on reprend le nom du maillot
 
-SIGNATURE = "Durand"        # None = dérivé du nom ; "" = pas de signature
+SIGNATURE = ""              # None = dérivé du nom ; "" = pas de signature
 SIGNATURE_GRAINE = 7        # change le tracé sans changer le nom
 SIGNATURE_ALEA = 0.030      # ampleur de l'ondulation de la main
-TRAIT_SIGNATURE = 0.46      # largeur du trait, en mm (celle de l'autographe d'origine)
+TRAIT_SIGNATURE = 0.46      # largeur du trait, en mm
 
-# Polices. Celle du maillot d'origine est un caractère de club, non
+# Polices. Celle du flocage d'origine est un caractère de club, non
 # redistribuable : Barlow Condensed en est l'équivalent libre le plus proche.
 POLICE_MAILLOT = "BarlowCondensed-SemiBold.ttf"
 CONDENSE_MAILLOT = 0.93     # resserrement horizontal, calé sur le flocage d'origine
@@ -54,67 +54,193 @@ POLICE_PLAQUE = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 URL_POLICE_MAILLOT = ("https://raw.githubusercontent.com/google/fonts/main/"
                       "ofl/barlowcondensed/BarlowCondensed-SemiBold.ttf")
 
-# Identifiants des pièces dans le projet d'origine.
-PIECE_FLOCAGE = 9           # nom + numéro au dos du maillot
-PIECE_PLAQUE_1 = 10         # première ligne de la plaque
-PIECE_PLAQUE_2 = 11         # seconde ligne
-PIECE_SIGNATURE = 12
+RACINE = "3D/3dmodel.model"
 
 
 # =========================================================================
-#  LECTURE DU 3MF
+#  LE PROJET 3MF
 # =========================================================================
 
-def lire_3mf(chemin):
-    with zipfile.ZipFile(chemin) as z:
-        return {i.filename: z.read(i.filename) for i in z.infolist()}
+class Projet:
+    """Accès uniforme aux maillages d'un projet Bambu.
+
+    Les projets récents éclatent les maillages dans `3D/Objects/*.model` et ne
+    gardent dans `3D/3dmodel.model` que l'assemblage. Cette classe masque la
+    différence : on demande un objet par son identifiant, sans savoir où il est.
+    """
+
+    def __init__(self, chemin):
+        with zipfile.ZipFile(chemin) as z:
+            self.fichiers = {i.filename: z.read(i.filename) for i in z.infolist()}
+        self.ordre = list(self.fichiers)
+        self.modeles = {f: d.decode("utf-8") for f, d in self.fichiers.items()
+                        if f.endswith(".model")}
+        self.cfg = self.fichiers["Metadata/model_settings.config"].decode("utf-8")
+
+        # assemblage = l'objet qui rassemble le plus de composants
+        self.assemblage, self.composants = None, {}
+        for m in re.finditer(r'<object id="(\d+)"[^>]*>\s*<components>(.*?)</components>',
+                             self.modeles[RACINE], re.S):
+            trouves = re.findall(
+                r'<component (?:p:path="([^"]*)" )?objectid="(\d+)"[^>]*'
+                r'transform="([^"]*)"', m.group(2))
+            if len(trouves) > len(self.composants):
+                self.assemblage = int(m.group(1))
+                self.composants = {int(o): [float(x) for x in t.split()]
+                                   for _, o, t in trouves}
+
+        # où vit le maillage de chaque objet
+        self.emplacement = {}
+        for f, s in self.modeles.items():
+            for m in re.finditer(r'<object id="(\d+)"[^>]*>\s*<mesh>', s):
+                self.emplacement[int(m.group(1))] = f
+
+    # ------------------------------------------------------------- maillages
+    def _bloc(self, oid):
+        f = self.emplacement[oid]
+        s = self.modeles[f]
+        i = re.search(rf'<object id="{oid}"[^>]*>', s).start()
+        j = s.index("</object>", i) + len("</object>")
+        return f, i, j
+
+    def maillage(self, oid):
+        f, i, j = self._bloc(oid)
+        seg = self.modeles[f][i:j]
+        V = [(float(a), float(b), float(c)) for a, b, c in
+             re.findall(r'<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/>', seg)]
+        T = [(int(a), int(b), int(c)) for a, b, c in
+             re.findall(r'<triangle v1="([^"]+)" v2="([^"]+)" v3="([^"]+)"', seg)]
+        return V, T
+
+    def remplacer(self, oid, V, T):
+        """Remplace le maillage d'un objet en gardant sa balise d'origine."""
+        f, i, j = self._bloc(oid)
+        seg = self.modeles[f][i:j]
+        v = "".join(f'     <vertex x="{x:.9g}" y="{y:.9g}" z="{z:.9g}"/>\n'
+                    for x, y, z in V)
+        t = "".join(f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>\n' for a, b, c in T)
+        neuf = re.sub(r"<mesh>.*</mesh>",
+                      f"<mesh>\n    <vertices>\n{v}    </vertices>\n"
+                      f"    <triangles>\n{t}    </triangles>\n   </mesh>",
+                      seg, flags=re.S)
+        self.modeles[f] = self.modeles[f][:i] + neuf + self.modeles[f][j:]
+
+    def supprimer(self, oid):
+        """Retire un objet : son maillage, son composant et sa pièce du config."""
+        f, i, j = self._bloc(oid)
+        s = self.modeles[f]
+        while i > 0 and s[i - 1] in " \t":
+            i -= 1
+        if i > 0 and s[i - 1] == "\n":
+            i -= 1
+        self.modeles[f] = s[:i] + s[j:]
+        self.modeles[RACINE] = re.sub(
+            rf'\n *<component [^>]*objectid="{oid}"[^>]*/>', "", self.modeles[RACINE])
+        self.composants.pop(oid, None)
+        self.emplacement.pop(oid, None)
+
+    # ------------------------------------------------------- transformations
+    def transformation(self, oid):
+        return self.composants[oid]
+
+    def vers_monde(self, oid, p):
+        v = self.composants[oid]
+        return (v[0] * p[0] + v[3] * p[1] + v[9],
+                v[1] * p[0] + v[4] * p[1] + v[10])
+
+    def vers_local(self, oid, p):
+        v = self.composants[oid]
+        det = v[0] * v[4] - v[3] * v[1]
+        x, y = p[0] - v[9], p[1] - v[10]
+        return ((v[4] * x - v[3] * y) / det, (-v[1] * x + v[0] * y) / det)
+
+    def echelle(self, oid):
+        """Facteur d'agrandissement du composant (norme de ses colonnes)."""
+        v = self.composants[oid]
+        return ((v[0] ** 2 + v[1] ** 2) ** 0.5, (v[3] ** 2 + v[4] ** 2) ** 0.5)
+
+    def boite_monde(self, oid):
+        V, T = self.maillage(oid)
+        pts = [self.vers_monde(oid, v) for v in V]
+        return (min(p[0] for p in pts), max(p[0] for p in pts),
+                min(p[1] for p in pts), max(p[1] for p in pts))
+
+    # ---------------------------------------------------------- enregistrement
+    def enregistrer(self, chemin):
+        for f, s in self.modeles.items():
+            self.fichiers[f] = s.encode("utf-8")
+        self.fichiers["Metadata/model_settings.config"] = self.cfg.encode("utf-8")
+        with zipfile.ZipFile(chemin, "w", zipfile.ZIP_DEFLATED) as z:
+            for nom in self.ordre:
+                if nom in self.fichiers:
+                    z.writestr(nom, self.fichiers[nom])
+            for nom in self.fichiers:
+                if nom not in self.ordre:
+                    z.writestr(nom, self.fichiers[nom])
 
 
-def ecrire_3mf(pieces, chemin, ordre):
-    with zipfile.ZipFile(chemin, "w", zipfile.ZIP_DEFLATED) as z:
-        for nom in ordre:
-            if nom in pieces:
-                z.writestr(nom, pieces[nom])
+# =========================================================================
+#  RÉGLAGES DU PROJET (Metadata/model_settings.config)
+# =========================================================================
 
-
-def bloc_objet(xml, oid):
-    i = xml.index(f'<object id="{oid}" type="model">')
-    j = xml.index("</object>", i) + len("</object>")
+def bloc_piece(cfg, pid):
+    i = re.search(rf'<part id="{pid}"', cfg).start()
+    j = cfg.index("</part>", i) + len("</part>")
     return i, j
 
 
-def lire_maillage(xml, oid):
-    i, j = bloc_objet(xml, oid)
-    seg = xml[i:j]
-    V = [(float(a), float(b), float(c)) for a, b, c in
-         re.findall(r'<vertex x="([^"]+)" y="([^"]+)" z="([^"]+)"/>', seg)]
-    T = [(int(a), int(b), int(c)) for a, b, c in
-         re.findall(r'<triangle v1="([^"]+)" v2="([^"]+)" v3="([^"]+)"', seg)]
-    return V, T
+def lire_piece(cfg, pid):
+    """Nom, extrudeur, texte et SVG d'une pièce."""
+    i, j = bloc_piece(cfg, pid)
+    seg = cfg[i:j]
+    nom = re.search(r'<metadata key="name" value="([^"]*)"', seg)
+    txt = re.search(r'<text_info text="([^"]*)"', seg)
+    svg = re.search(r'filepath3mf="([^"]*)"', seg)
+    return {"nom": nom.group(1) if nom else "",
+            "texte": txt.group(1) if txt else None,
+            "svg": svg.group(1) if svg else None}
 
 
-def xml_maillage(oid, V, T):
-    v = "".join(f'     <vertex x="{x:.9g}" y="{y:.9g}" z="{z:.9g}"/>\n' for x, y, z in V)
-    t = "".join(f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>\n' for a, b, c in T)
-    return (f'<object id="{oid}" type="model">\n   <mesh>\n'
-            f'    <vertices>\n{v}    </vertices>\n'
-            f'    <triangles>\n{t}    </triangles>\n   </mesh>\n  </object>')
+def modifier_piece(cfg, pid, **valeurs):
+    i, j = bloc_piece(cfg, pid)
+    seg = cfg[i:j]
+    if "nom" in valeurs:
+        seg = re.sub(r'(<metadata key="name" value=")[^"]*(")',
+                     lambda m: m.group(1) + echapper(valeurs["nom"]) + m.group(2),
+                     seg, count=1)
+    if "texte" in valeurs:
+        seg = re.sub(r'(<text_info text=")[^"]*(")',
+                     lambda m: m.group(1) + echapper(valeurs["texte"]) + m.group(2),
+                     seg, count=1)
+    if "faces" in valeurs:
+        seg = re.sub(r'(<mesh_stat face_count=")\d+(")',
+                     lambda m: m.group(1) + str(valeurs["faces"]) + m.group(2),
+                     seg, count=1)
+    if "svg" in valeurs:
+        avant, apres = valeurs["svg"]
+        seg = seg.replace(f'filepath="{os.path.basename(avant)}"',
+                          f'filepath="{os.path.basename(apres)}"')
+        seg = seg.replace(f'filepath3mf="{avant}"', f'filepath3mf="{apres}"')
+    return cfg[:i] + seg + cfg[j:]
 
 
-def remplacer_maillage(xml, oid, V, T):
-    i, j = bloc_objet(xml, oid)
-    return xml[:i] + xml_maillage(oid, V, T) + xml[j:]
-
-
-def supprimer_objet(xml, oid):
-    i, j = bloc_objet(xml, oid)
-    while i > 0 and xml[i - 1] in " \t":
+def supprimer_piece(cfg, pid):
+    i, j = bloc_piece(cfg, pid)
+    while i > 0 and cfg[i - 1] in " \t":
         i -= 1
-    if i > 0 and xml[i - 1] == "\n":
+    if i > 0 and cfg[i - 1] == "\n":
         i -= 1
-    xml = xml[:i] + xml[j:]
-    return re.sub(rf'\n *<component objectid="{oid}"[^>]*/>', "", xml)
+    return cfg[:i] + cfg[j:]
 
+
+def echapper(txt):
+    return (txt.replace("&", "&amp;").replace("<", "&lt;")
+            .replace(">", "&gt;").replace('"', "&quot;"))
+
+
+# =========================================================================
+#  MAILLAGES : découpage, mesure, recollage
+# =========================================================================
 
 def composantes(V, T):
     """Sépare un maillage en morceaux qui ne se touchent pas (une lettre, un chiffre)."""
@@ -149,39 +275,69 @@ def mediane(valeurs):
     return v[len(v) // 2]
 
 
-def gabarit_texte(V, T):
-    """Ligne de base, hauteur de capitale et cadrage d'un texte déjà maillé.
+def gabarit_texte(V, T, arc=False):
+    """Ligne de base, hauteur de capitale, courbure et cadrage d'un texte maillé.
 
-    La hauteur retenue est la médiane des sommets de lettres : un accent ou un
-    point isolé ne fausse donc pas la mesure.
+    Sur un texte droit, la hauteur retenue est la médiane des sommets de
+    lettres : un accent ou un point isolé ne fausse donc pas la mesure.
+
+    Sur un texte cintré (`arc`), les lettres sont inclinées, ce qui gonfle leur
+    boîte : on ajuste alors un cercle sur les pieds de lettres et on mesure la
+    capitale sur la lettre du sommet, la seule qui soit encore d'aplomb.
     """
-    morceaux = composantes(V, T)
-    boites = [boite(V, m) for m in morceaux]
-    base = min(b[2] for b in boites)
-    return {
-        "base": base,
-        "capitale": mediane([b[3] for b in boites]) - base,
-        "x0": min(b[0] for b in boites),
-        "x1": max(b[1] for b in boites),
-        "z0": min(b[4] for b in boites),
-        "z1": max(b[5] for b in boites),
-    }
+    boites = [boite(V, m) for m in composantes(V, T)]
+    g = {"base": min(b[2] for b in boites),
+         "capitale": mediane([b[3] for b in boites]) - min(b[2] for b in boites),
+         "x0": min(b[0] for b in boites), "x1": max(b[1] for b in boites),
+         "z0": min(b[4] for b in boites), "z1": max(b[5] for b in boites),
+         "rayon": None}
+    if not arc or len(boites) < 3:
+        return g
+
+    # Seules les vraies lettres servent à l'ajustement : un accent ou un point
+    # posé au-dessus du mot est un morceau court, et son pied n'est pas sur la
+    # ligne de base. Le laisser passer suffit à inventer une courbure.
+    hauteurs = [b[3] - b[2] for b in boites]
+    seuil = 0.6 * mediane(hauteurs)
+    lettres = [b for b, h in zip(boites, hauteurs) if h >= seuil]
+    if len(lettres) < 3:
+        return g
+    pieds = [((b[0] + b[1]) / 2, b[2]) for b in lettres]
+    largeur = g["x1"] - g["x0"]
+    cercle = g2.ajuster_arc(pieds)
+    if cercle is None:
+        return g
+    cx, cy, rayon = cercle
+    sommet = cy + rayon
+    if rayon > 20 * largeur or sommet - min(p[1] for p in pieds) < 0.15 * g["capitale"]:
+        return g                                   # courbure négligeable
+    g["rayon"] = rayon
+    g["base"] = sommet
+    g["x0"] = g["x1"] = None                       # le cadrage passe par le cercle
+    g["centre"] = cx
+    # capitale mesurée sur la lettre la plus proche du sommet de l'arc
+    haut = min(lettres, key=lambda b: abs((b[0] + b[1]) / 2 - cx))
+    g["capitale"] = haut[3] - haut[2]
+    return g
 
 
-def couper_en_deux(V, T):
-    """Coupe un maillage en deux paquets, de part et d'autre du plus grand vide en Y."""
-    morceaux = composantes(V, T)
-    boites = [boite(V, m) for m in morceaux]
-    bandes = sorted((b[2], b[3]) for b in boites)
-    vide, seuil = 0.0, None
-    haut = bandes[0][1]
+def vide_vertical(V, T):
+    """Plus grand intervalle en Y où le maillage est absent : (hauteur, altitude)."""
+    bandes = sorted((b[2], b[3]) for b in (boite(V, m) for m in composantes(V, T)))
+    vide, seuil, haut = 0.0, None, bandes[0][1]
     for y0, y1 in bandes[1:]:
         if y0 - haut > vide:
             vide, seuil = y0 - haut, (y0 + haut) / 2
         haut = max(haut, y1)
-    dessus = [m for m, b in zip(morceaux, boites) if b[2] > seuil]
-    dessous = [m for m, b in zip(morceaux, boites) if b[2] <= seuil]
-    return [t for m in dessus for t in m], [t for m in dessous for t in m]
+    return vide, seuil
+
+
+def couper_en_deux(V, T):
+    """Coupe un maillage de part et d'autre de son plus grand vide horizontal."""
+    _, seuil = vide_vertical(V, T)
+    morceaux = [(m, boite(V, m)) for m in composantes(V, T)]
+    return ([t for m, b in morceaux if b[2] > seuil for t in m],
+            [t for m, b in morceaux if b[2] <= seuil for t in m])
 
 
 def recoller(V, T):
@@ -205,6 +361,51 @@ def fusionner(a, b):
 
 
 # =========================================================================
+#  REPÉRAGE DES PIÈCES
+# =========================================================================
+
+def reperer(projet):
+    """Retrouve les pièces à modifier d'après leur place dans le cadre.
+
+    Aucun identifiant n'est supposé : d'un modèle à l'autre ils changent.
+    - le fond et le maillot sont les deux plus grandes pièces ;
+    - la plaque et la signature sont sous le maillot, en bas du cadre ;
+    - le flocage est la pièce posée sur le maillot dont le maillage présente
+      le plus grand vide horizontal, celui qui sépare le nom du numéro.
+    """
+    boites = {oid: projet.boite_monde(oid) for oid in projet.composants}
+    aire = lambda b: (b[1] - b[0]) * (b[3] - b[2])
+    classement = sorted(boites, key=lambda o: -aire(boites[o]))
+    fond, maillot = classement[0], classement[1]
+    bm = boites[maillot]
+
+    def sur_le_maillot(b, marge=1.0):
+        return (b[0] >= bm[0] - marge and b[1] <= bm[1] + marge
+                and b[2] >= bm[2] - marge and b[3] <= bm[3] + marge)
+
+    dessous, dessus = [], []
+    for oid, b in boites.items():
+        if oid in (fond, maillot):
+            continue
+        if sur_le_maillot(b):
+            dessus.append(oid)
+        elif b[3] < 0:
+            dessous.append(oid)
+
+    textes = {oid: lire_piece(projet.cfg, oid)["texte"] for oid in boites}
+    plaque = sorted((o for o in dessous if textes[o] is not None),
+                    key=lambda o: -boites[o][3])
+    signature = sorted((o for o in dessous if textes[o] is None),
+                       key=lambda o: -aire(boites[o]))
+
+    # Le flocage est de loin la pièce la plus détaillée posée sur le maillot :
+    # les rayures et liserés ne font que quelques dizaines de triangles.
+    flocage = max(dessus, key=lambda o: len(projet.maillage(o)[1])) if dessus else None
+    return {"fond": fond, "maillot": maillot, "flocage": flocage,
+            "plaque": plaque, "signature": signature[0] if signature else None}
+
+
+# =========================================================================
 #  SVG (pour que la pièce reste modifiable dans Bambu Studio)
 # =========================================================================
 
@@ -212,8 +413,7 @@ PT = 25.4 / 72.0      # Bambu importe les SVG en points PostScript
 
 
 def ecrire_svg(groupes):
-    """Écrit des contours (en mm) dans un SVG que Bambu Studio réimportera
-    à la même échelle."""
+    """Écrit des contours (en mm) dans un SVG que Bambu réimportera à l'échelle."""
     pts = [p for e, t in groupes for p in e]
     x0, x1 = min(p[0] for p in pts), max(p[0] for p in pts)
     y0, y1 = min(p[1] for p in pts), max(p[1] for p in pts)
@@ -223,8 +423,8 @@ def ecrire_svg(groupes):
     for ext, trous in groupes:
         d = []
         for anneau in [ext] + trous:
-            c = [f"M{(p[0]-x0)/PT:.3f} {(y1-p[1])/PT:.3f}" if i == 0
-                 else f"L{(p[0]-x0)/PT:.3f} {(y1-p[1])/PT:.3f}"
+            c = [("M" if i == 0 else "L")
+                 + f"{(p[0]-x0)/PT:.3f} {(y1-p[1])/PT:.3f}"
                  for i, p in enumerate(anneau)]
             d.append(" ".join(c) + " Z")
         chemins.append('<path d="%s"/>' % " ".join(d))
@@ -238,103 +438,36 @@ def ecrire_svg(groupes):
 
 
 # =========================================================================
-#  CONSTRUCTION DES NOUVELLES PIÈCES
+#  TEXTE
 # =========================================================================
 
 def police_maillot():
     """Chemin de la police du flocage ; la télécharge au besoin."""
-    dossier = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polices")
-    chemin = os.path.join(dossier, POLICE_MAILLOT)
-    if os.path.exists(chemin):
-        return chemin
     if os.path.isabs(POLICE_MAILLOT) and os.path.exists(POLICE_MAILLOT):
         return POLICE_MAILLOT
-    os.makedirs(dossier, exist_ok=True)
-    import urllib.request
-    print(f"  téléchargement de {POLICE_MAILLOT}...")
-    urllib.request.urlretrieve(URL_POLICE_MAILLOT, chemin)
+    dossier = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polices")
+    chemin = os.path.join(dossier, POLICE_MAILLOT)
+    if not os.path.exists(chemin):
+        os.makedirs(dossier, exist_ok=True)
+        import urllib.request
+        print(f"  téléchargement de {POLICE_MAILLOT}...")
+        urllib.request.urlretrieve(URL_POLICE_MAILLOT, chemin)
     return chemin
 
 
-def texte_cadre(txt, police, capitale, base, z0, z1,
-                centre_x=None, gauche_x=None, condense=1.0):
+def texte_cadre(txt, police, capitale, base, centre_x=None, gauche_x=None,
+                condense=1.0):
     """Contours d'un texte posés sur une ligne de base, centrés ou alignés à gauche."""
     contours = g2.contours_texte(txt, police, capitale, condense=condense)
     xs = [p[0] for c in contours for p in c]
     dx = (centre_x - (min(xs) + max(xs)) / 2) if centre_x is not None \
         else (gauche_x - min(xs))
-    contours = [[(p[0] + dx, p[1] + base) for p in c] for c in contours]
-    return g2.assainir(contours)
-
-
-# =========================================================================
-#  RÉGLAGES DU PROJET (Metadata/model_settings.config)
-# =========================================================================
-
-def bloc_piece(cfg, pid):
-    i = cfg.index(f'<part id="{pid}"')
-    j = cfg.index("</part>", i) + len("</part>")
-    return i, j
-
-
-def modifier_piece(cfg, pid, **valeurs):
-    """Change des attributs dans le bloc d'une pièce (nom, texte, nb de faces)."""
-    i, j = bloc_piece(cfg, pid)
-    seg = cfg[i:j]
-    if "nom" in valeurs:
-        seg = re.sub(r'(<metadata key="name" value=")[^"]*(")',
-                     lambda m: m.group(1) + echapper(valeurs["nom"]) + m.group(2), seg, count=1)
-    if "texte" in valeurs:
-        seg = re.sub(r'(<text_info text=")[^"]*(")',
-                     lambda m: m.group(1) + echapper(valeurs["texte"]) + m.group(2), seg, count=1)
-    if "faces" in valeurs:
-        seg = re.sub(r'(<mesh_stat face_count=")\d+(")',
-                     lambda m: m.group(1) + str(valeurs["faces"]) + m.group(2), seg, count=1)
-    if "svg" in valeurs:
-        seg = seg.replace('filepath="' + valeurs["svg"][0] + '"',
-                          'filepath="' + valeurs["svg"][1] + '"')
-        seg = seg.replace('filepath3mf="3D/' + valeurs["svg"][0] + '"',
-                          'filepath3mf="3D/' + valeurs["svg"][1] + '"')
-    return cfg[:i] + seg + cfg[j:]
-
-
-def supprimer_piece(cfg, pid):
-    i, j = bloc_piece(cfg, pid)
-    while i > 0 and cfg[i - 1] in " \t":
-        i -= 1
-    if i > 0 and cfg[i - 1] == "\n":
-        i -= 1
-    return cfg[:i] + cfg[j:]
-
-
-def echapper(txt):
-    return (txt.replace("&", "&amp;").replace("<", "&lt;")
-            .replace(">", "&gt;").replace('"', "&quot;"))
-
-
-def transformation(xml, oid):
-    """Échelle et translation du composant `oid` dans l'assemblage."""
-    m = re.search(rf'<component objectid="{oid}" transform="([^"]*)"', xml)
-    v = [float(x) for x in m.group(1).split()]
-    return (v[0], v[4], v[8]), (v[9], v[10], v[11])
+    return g2.assainir([[(p[0] + dx, p[1] + base) for p in c] for c in contours])
 
 
 # =========================================================================
 #  PROGRAMME
 # =========================================================================
-
-def svg_de_piece(cfg, pid):
-    """Nom du fichier SVG associé à une pièce, s'il y en a un."""
-    i, j = bloc_piece(cfg, pid)
-    m = re.search(r'filepath3mf="([^"]+)"', cfg[i:j])
-    return m.group(1) if m else None
-
-
-def total_faces(cfg, oid):
-    i = cfg.index(f'<object id="{oid}">')
-    j = cfg.index("</object>", i)
-    return sum(int(n) for n in re.findall(r'<mesh_stat face_count="(\d+)"', cfg[i:j]))
-
 
 def main():
     ap = argparse.ArgumentParser(
@@ -363,30 +496,34 @@ def main():
     else:
         ligne1, ligne2 = "", a.plaque.strip()
 
-    pieces = lire_3mf(a.source)
-    ordre = list(pieces)
-    xml = pieces["3D/3dmodel.model"].decode("utf-8")
-    cfg = pieces["Metadata/model_settings.config"].decode("utf-8")
-    svg_flocage = svg_de_piece(cfg, PIECE_FLOCAGE)
-    svg_signature = svg_de_piece(cfg, PIECE_SIGNATURE)
+    p = Projet(a.source)
+    pieces = reperer(p)
     police = police_maillot()
+    print("  pièces repérées :", ", ".join(
+        f"{k}={lire_piece(p.cfg, v)['nom']!r}" if isinstance(v, int) and v is not None
+        else f"{k}=" + str([lire_piece(p.cfg, o)['nom'] for o in v])
+        for k, v in pieces.items() if v))
 
     # ------------------------------------------------- le flocage au dos
-    V, T = lire_maillage(xml, PIECE_FLOCAGE)
+    oid = pieces["flocage"]
+    V, T = p.maillage(oid)
     tris_nom, tris_num = couper_en_deux(V, T)
-    gab_nom, gab_num = gabarit_texte(V, tris_nom), gabarit_texte(V, tris_num)
+    gab_nom = gabarit_texte(V, tris_nom, arc=True)
+    gab_num = gabarit_texte(V, tris_num)
     z0 = min(gab_nom["z0"], gab_num["z0"])
     z1 = max(gab_nom["z1"], gab_num["z1"])
-    ech, _ = transformation(xml, PIECE_FLOCAGE)
+    rayon = gab_nom["rayon"]
+    centre = gab_nom["centre"] if rayon else (gab_nom["x0"] + gab_nom["x1"]) / 2
 
-    groupes = texte_cadre(nom, police, gab_nom["capitale"], gab_nom["base"], z0, z1,
-                          centre_x=(gab_nom["x0"] + gab_nom["x1"]) / 2,
-                          condense=CONDENSE_MAILLOT)
+    groupes = texte_cadre(nom, police, gab_nom["capitale"], gab_nom["base"],
+                          centre_x=centre, condense=CONDENSE_MAILLOT)
+    if rayon:
+        groupes = g2.cintrer(groupes, rayon, gab_nom["base"], centre)
     flocage = g2.mailler(groupes, z0, z1)
 
     if a.numero:
         gr_num = texte_cadre(str(a.numero), police, gab_num["capitale"],
-                             gab_num["base"], z0, z1,
+                             gab_num["base"],
                              centre_x=(gab_num["x0"] + gab_num["x1"]) / 2,
                              condense=CONDENSE_MAILLOT)
         flocage = fusionner(flocage, g2.mailler(gr_num, z0, z1))
@@ -397,97 +534,107 @@ def main():
         chiffres = recoller(V, tris_num)
         flocage = fusionner(flocage, chiffres)
         groupes = groupes + g2.grouper(g2.contours_du_dessus(*chiffres))
-        m = re.search(r'<metadata key="name" value="[^"]*?(\d+)"/>', cfg[bloc_piece(cfg, PIECE_FLOCAGE)[0]:])
+        m = re.search(r"(\d+)\s*$", lire_piece(p.cfg, oid)["nom"])
         numero = m.group(1) if m else ""
 
-    xml = remplacer_maillage(xml, PIECE_FLOCAGE, *flocage)
-    etiquette = numero or "numéro d'origine"
-    print(f"  flocage    « {nom} » ({etiquette}) : {len(flocage[1])} triangles, "
-          f"capitale {gab_nom['capitale'] * ech[1]:.2f} mm")
+    p.remplacer(oid, *flocage)
+    svg_flocage = lire_piece(p.cfg, oid)["svg"]
+    reglages = {"nom": f"{nom} {numero}".strip(), "faces": len(flocage[1])}
+    if svg_flocage:
+        neuf = os.path.join(os.path.dirname(svg_flocage),
+                            f"{nom}-{numero}".strip("- ").replace(" ", "_") + ".svg")
+        reglages["svg"] = (svg_flocage, neuf)
+        p.fichiers[neuf] = ecrire_svg(groupes)
+        if neuf != svg_flocage:
+            p.fichiers.pop(svg_flocage, None)
+            p.ordre = [neuf if o == svg_flocage else o for o in p.ordre]
+    p.cfg = modifier_piece(p.cfg, oid, **reglages)
+    courbure = (f", cintré sur un rayon de {rayon * p.echelle(oid)[1]:.0f} mm"
+                if rayon else ", droit")
+    print(f"  flocage    « {nom} » ({numero or 'numéro inchangé'}) : "
+          f"{len(flocage[1])} triangles, capitale "
+          f"{gab_nom['capitale'] * p.echelle(oid)[1]:.2f} mm{courbure}")
 
     # ------------------------------------------------- la plaque du bas
-    V1, T1 = lire_maillage(xml, PIECE_PLAQUE_1)
-    V2, T2 = lire_maillage(xml, PIECE_PLAQUE_2)
+    p1, p2 = pieces["plaque"]
+    V1, T1 = p.maillage(p1)
+    V2, T2 = p.maillage(p2)
     gab1, gab2 = gabarit_texte(V1, T1), gabarit_texte(V2, T2)
-    _, t1 = transformation(xml, PIECE_PLAQUE_1)
-    _, t2 = transformation(xml, PIECE_PLAQUE_2)
-    cap = gab2["capitale"]
-    gauche = min(gab1["x0"] + t1[0], gab2["x0"] + t2[0])   # bord gauche commun
+    # Les deux lignes ont la même taille de corps. On retient la plus petite
+    # des deux mesures : c'est celle des lettres à sommet plat, les rondes
+    # dépassant toujours un peu la ligne de capitale.
+    cap = min(gab1["capitale"] * p.echelle(p1)[1], gab2["capitale"] * p.echelle(p2)[1])
+    base1 = p.vers_monde(p1, (gab1["x0"], gab1["base"]))
+    base2 = p.vers_monde(p2, (gab2["x0"], gab2["base"]))
+    gauche = min(base1[0], base2[0])          # bord gauche commun aux deux lignes
 
     if ligne1:
-        lignes = [(PIECE_PLAQUE_1, ligne1, gab1["base"] + t1[1], gab1, t1),
-                  (PIECE_PLAQUE_2, ligne2, gab2["base"] + t2[1], gab2, t2)]
+        lignes = [(p1, ligne1, base1[1], gab1), (p2, ligne2, base2[1], gab2)]
     else:
         # une seule ligne : on la recentre sur la hauteur du bloc d'origine
-        centre = ((gab2["base"] + t2[1]) + (gab1["base"] + t1[1] + cap)) / 2
-        lignes = [(PIECE_PLAQUE_2, ligne2, centre - cap / 2, gab2, t2)]
-        xml = supprimer_objet(xml, PIECE_PLAQUE_1)
-        cfg = supprimer_piece(cfg, PIECE_PLAQUE_1)
+        lignes = [(p2, ligne2, (base2[1] + base1[1] + cap) / 2 - cap / 2, gab2)]
+        p.supprimer(p1)
+        p.cfg = supprimer_piece(p.cfg, p1)
 
-    for pid, txt, base, gab, tr in lignes:
-        grp = texte_cadre(txt, POLICE_PLAQUE, cap, base - tr[1],
-                          gab["z0"], gab["z1"], gauche_x=gauche - tr[0])
+    for pid, txt, base_monde, gab in lignes:
+        x, y = p.vers_local(pid, (gauche, base_monde))
+        grp = texte_cadre(txt, POLICE_PLAQUE, cap / p.echelle(pid)[1], y, gauche_x=x)
         maillage = g2.mailler(grp, gab["z0"], gab["z1"])
-        xml = remplacer_maillage(xml, pid, *maillage)
-        cfg = modifier_piece(cfg, pid, nom=txt, texte=txt, faces=len(maillage[1]))
+        p.remplacer(pid, *maillage)
+        p.cfg = modifier_piece(p.cfg, pid, nom=txt, texte=txt, faces=len(maillage[1]))
         print(f"  plaque     « {txt} » : {len(maillage[1])} triangles, "
               f"capitale {cap:.2f} mm")
 
     # ------------------------------------------------- la signature
-    if signature:
-        Vs, Ts = lire_maillage(xml, PIECE_SIGNATURE)
+    sid = pieces["signature"]
+    if sid is not None and signature:
+        Vs, Ts = p.maillage(sid)
         b = boite(Vs, Ts)
-        ech_s, _ = transformation(xml, PIECE_SIGNATURE)
+        ex, ey = p.echelle(sid)
         largeur = b[1] - b[0]
         traces, _ = sigm.cadrer(
             sigm.composer(signature, alea=SIGNATURE_ALEA, graine=a.graine),
             largeur, centre=((b[0] + b[1]) / 2, (b[2] + b[3]) / 2))
-        gr_sig = g2.epaissir(traces, TRAIT_SIGNATURE / ech_s[0])
+        gr_sig = g2.epaissir(traces, TRAIT_SIGNATURE / ex)
         m_sig = g2.mailler(gr_sig, b[4], b[5])
-        xml = remplacer_maillage(xml, PIECE_SIGNATURE, *m_sig)
-        cfg = modifier_piece(cfg, PIECE_SIGNATURE, nom=f"Signature {signature}",
-                             faces=len(m_sig[1]))
-        ys = [p[1] for e, t in gr_sig for p in e]
+        p.remplacer(sid, *m_sig)
+        p.cfg = modifier_piece(p.cfg, sid, nom=f"Signature {signature}",
+                               faces=len(m_sig[1]))
+        svg_sig = lire_piece(p.cfg, sid)["svg"]
+        if svg_sig:
+            p.fichiers[svg_sig] = ecrire_svg(gr_sig)
+        ys = [q[1] for e, t in gr_sig for q in e]
         print(f"  signature  « {signature} » : {len(m_sig[1])} triangles, "
-              f"{largeur * ech_s[0]:.1f} x {(max(ys) - min(ys)) * ech_s[1]:.1f} mm")
-    else:
+              f"{largeur * ex:.1f} x {(max(ys) - min(ys)) * ey:.1f} mm")
+    elif sid is not None:
         # signature retirée : pièce, maillage et SVG associé disparaissent
-        gr_sig = None
-        xml = supprimer_objet(xml, PIECE_SIGNATURE)
-        cfg = supprimer_piece(cfg, PIECE_SIGNATURE)
+        svg_sig = lire_piece(p.cfg, sid)["svg"]
+        p.supprimer(sid)
+        p.cfg = supprimer_piece(p.cfg, sid)
+        if svg_sig:
+            p.fichiers.pop(svg_sig, None)
         print("  signature  aucune (pièce retirée du projet)")
 
-    # ------------------------------------------------- noms et compteurs
-    nouveau_svg = "3D/" + f"{nom}-{numero}".strip("- ").replace(" ", "_") + ".svg"
-    cfg = modifier_piece(cfg, PIECE_FLOCAGE, nom=f"{nom} {numero}".strip(),
-                         faces=len(flocage[1]),
-                         svg=(os.path.basename(svg_flocage),
-                              os.path.basename(nouveau_svg)))
-    cfg = re.sub(r'(<object id="13">\s*<metadata key="name" value="[^"]*"/>\s*'
-                 r'<metadata key="extruder" value="\d+"/>\s*<metadata face_count=")\d+(")',
-                 lambda m: m.group(1) + str(total_faces(cfg, 13)) + m.group(2),
-                 cfg, count=1)
-    cfg = re.sub(r'(<metadata key="plater_name" value=")[^"]*(")',
-                 lambda m: m.group(1) + echapper(nom.title()) + m.group(2), cfg, count=1)
-    xml = re.sub(r'(<metadata name="Title">)[^<]*(</metadata>)',
-                 lambda m: m.group(1)
-                 + echapper(f"{nom.title()} - AC Milan - Jersey Frame") + m.group(2),
-                 xml, count=1)
+    # ------------------------------------------------- titres et compteurs
+    i = re.search(rf'<object id="{p.assemblage}">', p.cfg).start()
+    j = p.cfg.index("</object>", i)
+    total = sum(int(n) for n in re.findall(r'<mesh_stat face_count="(\d+)"',
+                                           p.cfg[i:j]))
+    p.cfg = (p.cfg[:i]
+             + re.sub(r'(<metadata face_count=")\d+(")',
+                      lambda m: m.group(1) + str(total) + m.group(2),
+                      p.cfg[i:j], count=1)
+             + p.cfg[j:])
+    p.cfg = re.sub(r'(<metadata key="plater_name" value=")[^"]*(")',
+                   lambda m: m.group(1) + echapper(nom.title()) + m.group(2),
+                   p.cfg, count=1)
+    p.modeles[RACINE] = re.sub(
+        r'(<metadata name="Title">)([^<]*)(</metadata>)',
+        lambda m: m.group(1) + echapper(
+            re.sub(r"^[^-]+", nom.title() + " ", m.group(2)).strip()) + m.group(3),
+        p.modeles[RACINE], count=1)
 
-    # ------------------------------------------------- écriture du 3MF
-    pieces["3D/3dmodel.model"] = xml.encode("utf-8")
-    pieces["Metadata/model_settings.config"] = cfg.encode("utf-8")
-    pieces[nouveau_svg] = ecrire_svg(groupes)
-    if svg_flocage and svg_flocage != nouveau_svg:
-        pieces.pop(svg_flocage, None)
-        ordre = [nouveau_svg if o == svg_flocage else o for o in ordre]
-    if svg_signature:
-        if gr_sig is None:
-            pieces.pop(svg_signature, None)
-        else:
-            pieces[svg_signature] = ecrire_svg(gr_sig)
-
-    ecrire_3mf(pieces, a.sortie, ordre)
+    p.enregistrer(a.sortie)
     print(f"\n  -> {a.sortie}  ({os.path.getsize(a.sortie) / 1024:.0f} Ko)")
 
 
