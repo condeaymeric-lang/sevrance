@@ -59,8 +59,8 @@ def hauteur_capitale(tt):
     return max(p[1] for c in pen.contours for p in c)
 
 
-def contours_texte(txt, chemin_police, hauteur, approche=0.0, condense=1.0):
-    """Contours d'une chaîne, cadrés sur la hauteur de capitale demandée.
+def glyphes_texte(txt, chemin_police, hauteur, approche=0.0, condense=1.0):
+    """Contours signe par signe, avec le milieu de chasse de chacun.
 
     hauteur   : hauteur des capitales, en mm
     approche  : espacement additionnel entre lettres, en mm
@@ -71,7 +71,7 @@ def contours_texte(txt, chemin_police, hauteur, approche=0.0, condense=1.0):
     k = hauteur / hauteur_capitale(tt)          # unités police -> mm
     gs, cmap, hmtx = tt.getGlyphSet(), tt.getBestCmap(), tt["hmtx"]
 
-    contours, x = [], 0.0
+    glyphes, x = [], 0.0
     for ch in txt:
         nom = cmap.get(ord(ch))
         if nom is None:
@@ -79,10 +79,18 @@ def contours_texte(txt, chemin_police, hauteur, approche=0.0, condense=1.0):
             continue
         pen = _Pen(gs, upem / 200)
         gs[nom].draw(pen)
-        for c in pen.contours:
-            contours.append([(p[0] * k * condense + x, p[1] * k) for p in c])
-        x += hmtx[nom][0] * k * condense + approche
-    return contours
+        avance = hmtx[nom][0] * k * condense + approche
+        glyphes.append(([[(p[0] * k * condense + x, p[1] * k) for p in c]
+                         for c in pen.contours], x + avance / 2))
+        x += avance
+    return glyphes
+
+
+def contours_texte(txt, chemin_police, hauteur, approche=0.0, condense=1.0):
+    """Contours d'une chaîne, cadrés sur la hauteur de capitale demandée."""
+    return [c for contours, _ in
+            glyphes_texte(txt, chemin_police, hauteur, approche, condense)
+            for c in contours]
 
 
 # ------------------------------------------------------------------ plume
@@ -302,21 +310,27 @@ def ajuster_arc(points):
     return cx, cy, math.sqrt(r2)
 
 
-def cintrer(groupes, rayon, y_base, x_centre):
-    """Courbe des contours sur un arc de cercle.
+def cintrer_glyphes(glyphes, rayon, y_base, x_centre):
+    """Pose chaque signe sur un arc de cercle en le faisant pivoter d'un bloc.
+
+    Une déformation point par point ferait s'écarter le haut des lettres vers
+    l'extérieur et élargirait le mot ; un flocage cintré, lui, garde des
+    lettres intactes, simplement inclinées le long de l'arc.
 
     `y_base` est la ligne de base au sommet de l'arc, `x_centre` son abscisse.
-    Un rayon positif creuse l'arc vers le haut (lettres extérieures plus basses),
-    comme un flocage de maillot.
+    Un rayon positif creuse l'arc vers le haut, lettres extérieures plus basses.
     """
     if not rayon:
-        return groupes
+        return [c for contours, _ in glyphes for c in contours]
     cy = y_base - rayon
-
-    def f(p):
-        theta = (p[0] - x_centre) / rayon
-        r = rayon + (p[1] - y_base)
-        return (x_centre + r * math.sin(theta), cy + r * math.cos(theta))
-
-    return [([f(p) for p in ext], [[f(p) for p in t] for t in trous])
-            for ext, trous in groupes]
+    sortie = []
+    for contours, xg in glyphes:
+        theta = (xg - x_centre) / rayon
+        bx = x_centre + rayon * math.sin(theta)
+        by = cy + rayon * math.cos(theta)
+        co, si = math.cos(theta), math.sin(theta)
+        for c in contours:
+            sortie.append([(bx + (p[0] - xg) * co + (p[1] - y_base) * si,
+                            by - (p[0] - xg) * si + (p[1] - y_base) * co)
+                           for p in c])
+    return sortie

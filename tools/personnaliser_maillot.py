@@ -21,6 +21,7 @@ Dépendances :  pip install -r tools/requirements.txt
 Utilisation :  python tools/personnaliser_maillot.py source.3mf sortie.3mf --nom TATIN
 """
 import argparse
+import math
 import os
 import re
 import sys
@@ -45,14 +46,19 @@ SIGNATURE_GRAINE = 7        # change le tracé sans changer le nom
 SIGNATURE_ALEA = 0.030      # ampleur de l'ondulation de la main
 TRAIT_SIGNATURE = 0.46      # largeur du trait, en mm
 
-# Polices. Celle du flocage d'origine est un caractère de club, non
-# redistribuable : Barlow Condensed en est l'équivalent libre le plus proche.
-POLICE_MAILLOT = "BarlowCondensed-SemiBold.ttf"
-CONDENSE_MAILLOT = 0.93     # resserrement horizontal, calé sur le flocage d'origine
+# Polices. Celles des maillots sont des caractères de club, non
+# redistribuables. Barlow en est l'équivalent libre le plus proche ; les
+# maillots utilisent tantôt une chasse étroite, tantôt une chasse normale, et
+# le script retient celle qui tombe le plus près du flocage d'origine.
+POLICES_MAILLOT = {
+    "BarlowCondensed-SemiBold.ttf":
+        "https://raw.githubusercontent.com/google/fonts/main/"
+        "ofl/barlowcondensed/BarlowCondensed-SemiBold.ttf",
+    "Barlow-SemiBold.ttf":
+        "https://raw.githubusercontent.com/google/fonts/main/"
+        "ofl/barlow/Barlow-SemiBold.ttf",
+}
 POLICE_PLAQUE = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-
-URL_POLICE_MAILLOT = ("https://raw.githubusercontent.com/google/fonts/main/"
-                      "ofl/barlowcondensed/BarlowCondensed-SemiBold.ttf")
 
 RACINE = "3D/3dmodel.model"
 
@@ -290,7 +296,8 @@ def gabarit_texte(V, T, arc=False):
          "capitale": mediane([b[3] for b in boites]) - min(b[2] for b in boites),
          "x0": min(b[0] for b in boites), "x1": max(b[1] for b in boites),
          "z0": min(b[4] for b in boites), "z1": max(b[5] for b in boites),
-         "rayon": None}
+         "rayon": None, "mesure": "boite"}
+    g["largeur"] = g["x1"] - g["x0"]
     if not arc or len(boites) < 3:
         return g
 
@@ -302,29 +309,40 @@ def gabarit_texte(V, T, arc=False):
     lettres = [b for b, h in zip(boites, hauteurs) if h >= seuil]
     if len(lettres) < 3:
         return g
-    pieds = [((b[0] + b[1]) / 2, b[2]) for b in lettres]
+    # L'ajustement porte sur le CENTRE de chaque lettre, pas sur son pied :
+    # une lettre inclinée a son coin inférieur plus bas que sa ligne de base,
+    # et d'autant plus bas qu'elle est loin du sommet — ajuster sur les pieds
+    # creuse l'arc. Le centre d'une lettre, lui, est insensible à la rotation.
+    centres = [((b[0] + b[1]) / 2, (b[2] + b[3]) / 2) for b in lettres]
     largeur = g["x1"] - g["x0"]
-    cercle = g2.ajuster_arc(pieds)
+    cercle = g2.ajuster_arc(centres)
     if cercle is None:
         return g
-    cx, cy, rayon = cercle
-    sommet = cy + rayon
-    if rayon > 20 * largeur or sommet - min(p[1] for p in pieds) < 0.15 * g["capitale"]:
+    cx, cy, rayon_c = cercle
+    # capitale mesurée sur la lettre du sommet, la seule encore d'aplomb
+    haut = min(lettres, key=lambda b: abs((b[0] + b[1]) / 2 - cx))
+    cap = haut[3] - haut[2]
+    rayon = rayon_c - cap / 2                      # cercle de la ligne de base
+    sommet = cy + rayon_c - cap / 2
+    creux = (cy + rayon_c) - min(q[1] for q in centres)
+    if rayon <= 0 or rayon > 20 * largeur or creux < 0.15 * cap:
         return g                                   # courbure négligeable
     g["rayon"] = rayon
     g["base"] = sommet
-    g["x0"] = g["x1"] = None                       # le cadrage passe par le cercle
     g["centre"] = cx
-    # capitale mesurée sur la lettre la plus proche du sommet de l'arc
-    haut = min(lettres, key=lambda b: abs((b[0] + b[1]) / 2 - cx))
-    g["capitale"] = haut[3] - haut[2]
+    g["capitale"] = cap
+    # Chasse mesurée d'entraxe à entraxe : la boîte du mot déborde des lettres
+    # extrêmes, qui sont inclinées, alors que leurs centres sont sûrs.
+    angles = [math.asin(max(-1.0, min(1.0, (q[0] - cx) / rayon_c))) for q in centres]
+    g["largeur"] = rayon * (max(angles) - min(angles))
+    g["mesure"] = "entraxe"
     return g
 
 
 def vide_vertical(V, T):
     """Plus grand intervalle en Y où le maillage est absent : (hauteur, altitude)."""
     bandes = sorted((b[2], b[3]) for b in (boite(V, m) for m in composantes(V, T)))
-    vide, seuil, haut = 0.0, None, bandes[0][1]
+    vide, seuil, haut = 0.0, bandes[0][0] - 1.0, bandes[0][1]
     for y0, y1 in bandes[1:]:
         if y0 - haut > vide:
             vide, seuil = y0 - haut, (y0 + haut) / 2
@@ -397,12 +415,16 @@ def reperer(projet):
                     key=lambda o: -boites[o][3])
     signature = sorted((o for o in dessous if textes[o] is None),
                        key=lambda o: -aire(boites[o]))
+    # le nom du club est le texte du haut du cadre, au-dessus du maillot
+    club = [o for o, t in textes.items()
+            if t is not None and o not in (fond, maillot) and boites[o][2] > bm[3]]
 
     # Le flocage est de loin la pièce la plus détaillée posée sur le maillot :
     # les rayures et liserés ne font que quelques dizaines de triangles.
     flocage = max(dessus, key=lambda o: len(projet.maillage(o)[1])) if dessus else None
     return {"fond": fond, "maillot": maillot, "flocage": flocage,
-            "plaque": plaque, "signature": signature[0] if signature else None}
+            "plaque": plaque, "signature": signature[0] if signature else None,
+            "club": club[0] if club else None}
 
 
 # =========================================================================
@@ -441,28 +463,79 @@ def ecrire_svg(groupes):
 #  TEXTE
 # =========================================================================
 
-def police_maillot():
-    """Chemin de la police du flocage ; la télécharge au besoin."""
-    if os.path.isabs(POLICE_MAILLOT) and os.path.exists(POLICE_MAILLOT):
-        return POLICE_MAILLOT
+def police(nom, url=None):
+    """Chemin d'une police ; la télécharge au besoin."""
+    if os.path.isabs(nom) and os.path.exists(nom):
+        return nom
     dossier = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polices")
-    chemin = os.path.join(dossier, POLICE_MAILLOT)
-    if not os.path.exists(chemin):
+    chemin = os.path.join(dossier, nom)
+    if not os.path.exists(chemin) and url:
         os.makedirs(dossier, exist_ok=True)
         import urllib.request
-        print(f"  téléchargement de {POLICE_MAILLOT}...")
-        urllib.request.urlretrieve(URL_POLICE_MAILLOT, chemin)
+        print(f"  téléchargement de {nom}...")
+        urllib.request.urlretrieve(url, chemin)
     return chemin
 
 
+def choisir_police(txt_origine, capitale, largeur_cible, mesure="boite"):
+    """Police de substitution dont la chasse naturelle colle le mieux à l'originale.
+
+    Renvoie (chemin, resserrement). Un maillot au flocage étroit et un maillot
+    au flocage large ne demandent pas la même police : plutôt que d'étirer une
+    police unique, on prend celle qui exige la correction la plus faible.
+    """
+    essais = []
+    for nom, url in POLICES_MAILLOT.items():
+        chemin = police(nom, url)
+        k = calibrer(txt_origine, chemin, capitale, largeur_cible, mesure)
+        essais.append((abs(math.log(k)) if k > 0 else 9e9, chemin, k))
+    _, chemin, k = min(essais)
+    return chemin, k
+
+
+def calibrer(txt_origine, police, capitale, largeur_cible, mesure="boite"):
+    """Resserrement à appliquer pour retrouver la chasse du texte d'origine.
+
+    Les polices des maillots et des plaques ne sont pas redistribuables ; on
+    leur substitue un équivalent libre, forcément un peu plus large ou plus
+    étroit. Plutôt qu'un facteur réglé à la main, on redessine le texte
+    d'origine dans la police de remplacement et on compare les largeurs.
+
+    `mesure` dit sur quoi comparer : la boîte du mot entier, ou l'entraxe des
+    lettres extrêmes quand le mot d'origine est cintré et que sa boîte déborde.
+    """
+    if not txt_origine or not largeur_cible:
+        return 1.0
+    glyphes = g2.glyphes_texte(txt_origine, police, capitale)
+    if not glyphes:
+        return 1.0
+    if mesure == "entraxe":
+        milieux = [(min(q[0] for c in cs for q in c)
+                    + max(q[0] for c in cs for q in c)) / 2 for cs, _ in glyphes]
+        largeur = max(milieux) - min(milieux)
+    else:
+        xs = [q[0] for cs, _ in glyphes for c in cs for q in c]
+        largeur = max(xs) - min(xs)
+    return largeur_cible / largeur if largeur > 0 else 1.0
+
+
 def texte_cadre(txt, police, capitale, base, centre_x=None, gauche_x=None,
-                condense=1.0):
-    """Contours d'un texte posés sur une ligne de base, centrés ou alignés à gauche."""
-    contours = g2.contours_texte(txt, police, capitale, condense=condense)
-    xs = [p[0] for c in contours for p in c]
+                condense=1.0, rayon=None):
+    """Contours d'un texte posé sur une ligne de base, centré ou aligné à gauche.
+
+    Avec un `rayon`, le texte est cintré : chaque lettre pivote d'un bloc le
+    long de l'arc, elle n'est pas déformée.
+    """
+    glyphes = g2.glyphes_texte(txt, police, capitale, condense=condense)
+    if not glyphes:
+        return []
+    xs = [q[0] for cs, _ in glyphes for c in cs for q in c]
     dx = (centre_x - (min(xs) + max(xs)) / 2) if centre_x is not None \
         else (gauche_x - min(xs))
-    return g2.assainir([[(p[0] + dx, p[1] + base) for p in c] for c in contours])
+    glyphes = [([[(q[0] + dx, q[1] + base) for q in c] for c in cs], x + dx)
+               for cs, x in glyphes]
+    return g2.assainir(
+        g2.cintrer_glyphes(glyphes, rayon, base, centre_x if rayon else 0.0))
 
 
 # =========================================================================
@@ -483,6 +556,11 @@ def main():
                     help='nom écrit à la main ; "" pour ne pas mettre de signature')
     ap.add_argument("--graine", type=int, default=SIGNATURE_GRAINE,
                     help="variante du tracé de la signature")
+    ap.add_argument("--club", default=None,
+                    help="texte du haut du cadre (nom du club)")
+    ap.add_argument("--filament", action="append", default=[], metavar="N=#RRGGBB",
+                    help="recolore un filament, par exemple --filament 2=#FFFFFF ; "
+                         "répétable")
     a = ap.parse_args()
 
     nom = a.nom
@@ -498,7 +576,6 @@ def main():
 
     p = Projet(a.source)
     pieces = reperer(p)
-    police = police_maillot()
     print("  pièces repérées :", ", ".join(
         f"{k}={lire_piece(p.cfg, v)['nom']!r}" if isinstance(v, int) and v is not None
         else f"{k}=" + str([lire_piece(p.cfg, o)['nom'] for o in v])
@@ -515,17 +592,18 @@ def main():
     rayon = gab_nom["rayon"]
     centre = gab_nom["centre"] if rayon else (gab_nom["x0"] + gab_nom["x1"]) / 2
 
-    groupes = texte_cadre(nom, police, gab_nom["capitale"], gab_nom["base"],
-                          centre_x=centre, condense=CONDENSE_MAILLOT)
-    if rayon:
-        groupes = g2.cintrer(groupes, rayon, gab_nom["base"], centre)
+    ancien = re.sub(r"\s*\d+\s*$", "", lire_piece(p.cfg, oid)["nom"])
+    police_nom, serrage = choisir_police(ancien, gab_nom["capitale"],
+                                         gab_nom["largeur"], gab_nom["mesure"])
+    groupes = texte_cadre(nom, police_nom, gab_nom["capitale"], gab_nom["base"],
+                          centre_x=centre, condense=serrage, rayon=rayon)
     flocage = g2.mailler(groupes, z0, z1)
 
     if a.numero:
-        gr_num = texte_cadre(str(a.numero), police, gab_num["capitale"],
+        gr_num = texte_cadre(str(a.numero), police_nom, gab_num["capitale"],
                              gab_num["base"],
                              centre_x=(gab_num["x0"] + gab_num["x1"]) / 2,
-                             condense=CONDENSE_MAILLOT)
+                             condense=serrage)
         flocage = fusionner(flocage, g2.mailler(gr_num, z0, z1))
         groupes = groupes + gr_num
         numero = str(a.numero)
@@ -551,6 +629,7 @@ def main():
     p.cfg = modifier_piece(p.cfg, oid, **reglages)
     courbure = (f", cintré sur un rayon de {rayon * p.echelle(oid)[1]:.0f} mm"
                 if rayon else ", droit")
+    courbure += f", {os.path.basename(police_nom)[:-4]} à {serrage:.2f}"
     print(f"  flocage    « {nom} » ({numero or 'numéro inchangé'}) : "
           f"{len(flocage[1])} triangles, capitale "
           f"{gab_nom['capitale'] * p.echelle(oid)[1]:.2f} mm{courbure}")
@@ -576,14 +655,21 @@ def main():
         p.supprimer(p1)
         p.cfg = supprimer_piece(p.cfg, p1)
 
+    serrages = [calibrer(lire_piece(p.cfg, q)["texte"], POLICE_PLAQUE,
+                         cap / p.echelle(q)[1],
+                         g["largeur"] * p.echelle(q)[0] / p.echelle(q)[1])
+                for q, g in ((p1, gab1), (p2, gab2))]
+    serrage_plaque = sum(serrages) / len(serrages)
+
     for pid, txt, base_monde, gab in lignes:
         x, y = p.vers_local(pid, (gauche, base_monde))
-        grp = texte_cadre(txt, POLICE_PLAQUE, cap / p.echelle(pid)[1], y, gauche_x=x)
+        grp = texte_cadre(txt, POLICE_PLAQUE, cap / p.echelle(pid)[1], y,
+                          gauche_x=x, condense=serrage_plaque)
         maillage = g2.mailler(grp, gab["z0"], gab["z1"])
         p.remplacer(pid, *maillage)
         p.cfg = modifier_piece(p.cfg, pid, nom=txt, texte=txt, faces=len(maillage[1]))
         print(f"  plaque     « {txt} » : {len(maillage[1])} triangles, "
-              f"capitale {cap:.2f} mm")
+              f"capitale {cap:.2f} mm, chasse {serrage_plaque:.2f}")
 
     # ------------------------------------------------- la signature
     sid = pieces["signature"]
@@ -615,6 +701,51 @@ def main():
             p.fichiers.pop(svg_sig, None)
         print("  signature  aucune (pièce retirée du projet)")
 
+    # ------------------------------------------------- le nom du club
+    cid = pieces["club"]
+    if a.club and cid is not None:
+        Vc, Tc = p.maillage(cid)
+        gab = gabarit_texte(Vc, Tc)
+        serrage_club = calibrer(lire_piece(p.cfg, cid)["texte"], POLICE_PLAQUE,
+                                gab["capitale"], gab["largeur"])
+        grp = texte_cadre(a.club, POLICE_PLAQUE, gab["capitale"], gab["base"],
+                          centre_x=(gab["x0"] + gab["x1"]) / 2,
+                          condense=serrage_club)
+        maillage = g2.mailler(grp, gab["z0"], gab["z1"])
+        p.remplacer(cid, *maillage)
+        p.cfg = modifier_piece(p.cfg, cid, nom=a.club, texte=a.club,
+                               faces=len(maillage[1]))
+        larg = (max(q[0] for e, t in grp for q in e)
+                - min(q[0] for e, t in grp for q in e)) * p.echelle(cid)[0]
+        bf = p.boite_monde(pieces["fond"])
+        dispo = bf[1] - bf[0]
+        print(f"  club       « {a.club} » : {len(maillage[1])} triangles, "
+              f"largeur {larg:.1f} mm sur {dispo:.1f} disponibles, "
+              f"chasse {serrage_club:.2f}")
+        if larg > dispo - 2:
+            print("             ATTENTION : le texte touche ou dépasse le cadre")
+
+    # ------------------------------------------------- couleurs des filaments
+    if a.filament:
+        # Remplacement textuel de la seule liste des couleurs : un aller-retour
+        # par le module json réécrirait tout le fichier de réglages.
+        cle = "Metadata/project_settings.config"
+        reglages = p.fichiers[cle].decode("utf-8")
+        m = re.search(r'"filament_colour":\s*\[([^\]]*)\]', reglages)
+        couleurs = re.findall(r'"(#[0-9A-Fa-f]{6,8})"', m.group(1))
+        for regle in a.filament:
+            n, c = regle.split("=", 1)
+            n = int(n)
+            if not 1 <= n <= len(couleurs):
+                raise SystemExit(f"filament {n} inexistant "
+                                 f"(le projet en compte {len(couleurs)})")
+            couleurs[n - 1] = c if c.startswith("#") else "#" + c
+        liste = ",\n        ".join(f'"{c}"' for c in couleurs)
+        p.fichiers[cle] = (reglages[:m.start()]
+                           + f'"filament_colour": [\n        {liste}\n    ]'
+                           + reglages[m.end():]).encode("utf-8")
+        print("  filaments  " + "  ".join(f"{i+1}:{c}" for i, c in enumerate(couleurs)))
+
     # ------------------------------------------------- titres et compteurs
     i = re.search(rf'<object id="{p.assemblage}">', p.cfg).start()
     j = p.cfg.index("</object>", i)
@@ -628,11 +759,17 @@ def main():
     p.cfg = re.sub(r'(<metadata key="plater_name" value=")[^"]*(")',
                    lambda m: m.group(1) + echapper(nom.title()) + m.group(2),
                    p.cfg, count=1)
-    p.modeles[RACINE] = re.sub(
-        r'(<metadata name="Title">)([^<]*)(</metadata>)',
-        lambda m: m.group(1) + echapper(
-            re.sub(r"^[^-]+", nom.title() + " ", m.group(2)).strip()) + m.group(3),
-        p.modeles[RACINE], count=1)
+    def retitre(m):
+        # « Joueur - Club - Jersey Frame » : on remplace ce qui a changé
+        morceaux = [x.strip() for x in m.group(2).split("-")]
+        if morceaux:
+            morceaux[0] = nom.title()
+        if a.club and len(morceaux) > 1:
+            morceaux[1] = a.club.title()
+        return m.group(1) + echapper(" - ".join(morceaux)) + m.group(3)
+
+    p.modeles[RACINE] = re.sub(r'(<metadata name="Title">)([^<]*)(</metadata>)',
+                               retitre, p.modeles[RACINE], count=1)
 
     p.enregistrer(a.sortie)
     print(f"\n  -> {a.sortie}  ({os.path.getsize(a.sortie) / 1024:.0f} Ko)")

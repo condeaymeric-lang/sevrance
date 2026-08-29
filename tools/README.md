@@ -40,6 +40,8 @@ python tools/personnaliser_maillot.py source.3mf sortie.3mf \
 | `--numero` | numéro au dos ; sans cette option, celui d'origine est **conservé tel quel** |
 | `--plaque` | texte de la plaque ; `"PRÉNOM / NOM"` pour deux lignes, sinon une seule, recentrée |
 | `--signature` | nom écrit à la main ; `--signature ""` retire complètement la pièce |
+| `--club` | texte du haut du cadre |
+| `--filament` | recolore un filament, `--filament 2=#FFFFFF` ; répétable |
 | `--graine` | change le tracé de la signature sans changer le nom |
 
 Les valeurs par défaut sont en tête du script, dans le bloc `PARAMÈTRES`.
@@ -64,11 +66,19 @@ Il **mesure** ensuite la pièce d'origine et cale la nouvelle dessus.
 - La hauteur de capitale est la **médiane** des sommets de lettres, pour qu'un
   accent isolé (le `Ć` de `IBRAHIMOVIĆ`) ne fausse pas la mesure.
 - Si le nom d'origine est **cintré en arc** — c'est le cas de beaucoup de
-  maillots — un cercle est ajusté sur les pieds de lettres et le nouveau nom
-  est courbé sur le même rayon. Les accents sont exclus de cet ajustement :
-  leur pied n'est pas sur la ligne de base, et les laisser passer suffit à
-  inventer une courbure là où le nom est droit. La capitale est alors mesurée
-  sur la lettre du sommet de l'arc, la seule qui soit encore d'aplomb.
+  maillots — un cercle est ajusté sur le **centre** des lettres, jamais sur
+  leur pied : une lettre inclinée a son coin inférieur plus bas que sa ligne
+  de base, et d'autant plus bas qu'elle est loin du sommet, si bien qu'ajuster
+  sur les pieds creuse l'arc. Le centre, lui, ne bouge pas quand la lettre
+  pivote. Le rayon de la ligne de base s'en déduit en retranchant la demi-
+  capitale. Les accents sont exclus de l'ajustement : leur pied n'est pas non
+  plus sur la ligne de base, et les laisser passer suffit à inventer une
+  courbure là où le nom est droit. La capitale est mesurée sur la lettre du
+  sommet de l'arc, la seule qui soit encore d'aplomb.
+- Le nouveau nom est cintré en faisant **pivoter chaque lettre d'un bloc**. Une
+  déformation point par point écarterait le sommet des lettres vers
+  l'extérieur et élargirait le mot de 15 % ; ici les lettres gardent leur
+  forme, comme sur un vrai flocage.
 - Les deux lignes de la plaque reçoivent la même taille de corps : la plus
   petite des deux mesures, celle des lettres à sommet plat, les rondes
   dépassant toujours un peu la ligne de capitale.
@@ -89,11 +99,24 @@ nom.
 
 ### Polices
 
-Le caractère du flocage d'origine est une police de club, non redistribuable.
-`Barlow Condensed SemiBold` en est l'équivalent libre le plus proche ; le script
-la télécharge dans `tools/polices/` au premier lancement. `CONDENSE_MAILLOT`
-(0.93) resserre les lettres pour retomber sur les proportions du flocage
-d'origine. La plaque utilise Liberation Sans Bold, équivalent métrique
+Les caractères des maillots sont des polices de club, non redistribuables.
+Barlow en est l'équivalent libre le plus proche, et le script en garde deux
+graisses de chasse différente — `Barlow Condensed SemiBold` et
+`Barlow SemiBold` — qu'il télécharge dans `tools/polices/` au besoin.
+
+Le choix ne se fait pas à la main : le script **redessine le texte d'origine**
+dans chaque police candidate, compare la largeur obtenue à celle mesurée sur le
+modèle, et retient la police qui demande la correction la plus faible, puis
+applique le petit resserrement résiduel. Sur les deux modèles essayés il choisit
+tout seul l'étroite pour l'un (0,93) et la normale pour l'autre — deux flocages
+que la même police aurait mal servis.
+
+Le même calibrage s'applique à la plaque et au nom du club, et il évite un
+débordement réel : sans lui, « OLYMPIQUE LYONNAIS » sortait à 127,9 mm dans une
+ouverture de cadre de 126. Le script affiche la largeur obtenue et la largeur
+disponible, et prévient si le texte touche le cadre.
+
+La plaque et le nom du club utilisent Liberation Sans Bold, équivalent métrique
 d'Helvetica.
 
 ### La signature
@@ -111,6 +134,16 @@ précisément ce qu'on veut en remplaçant un autographe réel par un nom fictif
 `--signature ""` supprime la signature pour de bon : la pièce, son maillage, son
 entrée dans le config et son SVG disparaissent du projet. Il ne reste rien à cet
 endroit, pas même une pièce vide.
+
+### Couleurs
+
+`--filament N=#RRGGBB` recolore un filament du projet. Seule la liste des
+couleurs est réécrite dans le fichier de réglages, par remplacement textuel :
+un aller-retour par un analyseur JSON en réécrirait les 537 clés.
+
+Le script ne change pas l'affectation des pièces aux filaments : pour savoir
+quel numéro correspond à quoi, lancez-le une fois et lisez le repérage, ou
+ouvrez le projet dans Bambu Studio.
 
 ### Ce que le script ne met pas à jour
 
