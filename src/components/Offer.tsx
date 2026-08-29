@@ -1,11 +1,14 @@
 import Link from "next/link";
 import BuyButton from "./BuyButton";
+import PaymentCancelled from "./PaymentCancelled";
 import { FINAL_CTA, HERO, OFFER, PRODUCT } from "@/lib/content";
 
 export default function Offer() {
   return (
     <section id="offre" className="scroll-mt-8 border-b border-rule">
       <div className="mx-auto w-full max-w-5xl px-6 py-16 sm:px-8 sm:py-24">
+        <PaymentCancelled />
+
         <p className="eyebrow">{OFFER.eyebrow}</p>
         <h2 className="mt-5 max-w-2xl font-serif text-3xl leading-tight tracking-tight sm:text-5xl">
           {OFFER.title}

@@ -92,7 +92,8 @@ Automatisé (`npm test`, `npm run lint`, `npm run typecheck`, `npm run build`) :
       `/merci` → lien de téléchargement fonctionnel.
 - [ ] Email reçu via Resend, lien du mail fonctionnel.
 - [ ] Lien expiré : message d'erreur explicite (page `410`).
-- [ ] Paiement refusé (`4000 0000 0000 0002`) : retour sur `/#offre`.
+- [ ] Paiement abandonné ou refusé (`4000 0000 0000 0002`) : retour sur
+      `/#offre` avec le message « rien n'a été débité ».
 - [ ] Remboursement Stripe, puis vérification du parcours de support.
 
 ## Points à traiter avant production
