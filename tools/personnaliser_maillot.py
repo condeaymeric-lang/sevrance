@@ -40,7 +40,7 @@ NUMERO = None               # None = on garde le numéro d'origine ; sinon "9", 
 PLAQUE_LIGNE_1 = ""         # prénom ; vide = une seule ligne, recentrée
 PLAQUE_LIGNE_2 = "DURAND"   # nom
 
-SIGNATURE = "Durand"        # nom écrit à la main
+SIGNATURE = "Durand"        # None = dérivé du nom ; "" = pas de signature
 SIGNATURE_GRAINE = 7        # change le tracé sans changer le nom
 SIGNATURE_ALEA = 0.030      # ampleur de l'ondulation de la main
 TRAIT_SIGNATURE = 0.46      # largeur du trait, en mm (celle de l'autographe d'origine)
@@ -346,13 +346,16 @@ def main():
                     help="numéro ; par défaut on garde celui d'origine")
     ap.add_argument("--plaque", default=None,
                     help='texte de la plaque ; deux lignes séparées par "/"')
-    ap.add_argument("--signature", default=None, help="nom écrit à la main")
+    ap.add_argument("--signature", default=None,
+                    help='nom écrit à la main ; "" pour ne pas mettre de signature')
     ap.add_argument("--graine", type=int, default=SIGNATURE_GRAINE,
                     help="variante du tracé de la signature")
     a = ap.parse_args()
 
     nom = a.nom
-    signature = a.signature if a.signature is not None else (SIGNATURE or nom.title())
+    signature = a.signature if a.signature is not None else SIGNATURE
+    if signature is None:
+        signature = nom.title()
     if a.plaque is None:
         ligne1, ligne2 = PLAQUE_LIGNE_1, (PLAQUE_LIGNE_2 or nom)
     elif "/" in a.plaque:
@@ -431,19 +434,28 @@ def main():
               f"capitale {cap:.2f} mm")
 
     # ------------------------------------------------- la signature
-    Vs, Ts = lire_maillage(xml, PIECE_SIGNATURE)
-    b = boite(Vs, Ts)
-    ech_s, _ = transformation(xml, PIECE_SIGNATURE)
-    largeur = b[1] - b[0]
-    traces, _ = sigm.cadrer(
-        sigm.composer(signature, alea=SIGNATURE_ALEA, graine=a.graine),
-        largeur, centre=((b[0] + b[1]) / 2, (b[2] + b[3]) / 2))
-    gr_sig = g2.epaissir(traces, TRAIT_SIGNATURE / ech_s[0])
-    m_sig = g2.mailler(gr_sig, b[4], b[5])
-    xml = remplacer_maillage(xml, PIECE_SIGNATURE, *m_sig)
-    ys = [p[1] for e, t in gr_sig for p in e]
-    print(f"  signature  « {signature} » : {len(m_sig[1])} triangles, "
-          f"{largeur * ech_s[0]:.1f} x {(max(ys) - min(ys)) * ech_s[1]:.1f} mm")
+    if signature:
+        Vs, Ts = lire_maillage(xml, PIECE_SIGNATURE)
+        b = boite(Vs, Ts)
+        ech_s, _ = transformation(xml, PIECE_SIGNATURE)
+        largeur = b[1] - b[0]
+        traces, _ = sigm.cadrer(
+            sigm.composer(signature, alea=SIGNATURE_ALEA, graine=a.graine),
+            largeur, centre=((b[0] + b[1]) / 2, (b[2] + b[3]) / 2))
+        gr_sig = g2.epaissir(traces, TRAIT_SIGNATURE / ech_s[0])
+        m_sig = g2.mailler(gr_sig, b[4], b[5])
+        xml = remplacer_maillage(xml, PIECE_SIGNATURE, *m_sig)
+        cfg = modifier_piece(cfg, PIECE_SIGNATURE, nom=f"Signature {signature}",
+                             faces=len(m_sig[1]))
+        ys = [p[1] for e, t in gr_sig for p in e]
+        print(f"  signature  « {signature} » : {len(m_sig[1])} triangles, "
+              f"{largeur * ech_s[0]:.1f} x {(max(ys) - min(ys)) * ech_s[1]:.1f} mm")
+    else:
+        # signature retirée : pièce, maillage et SVG associé disparaissent
+        gr_sig = None
+        xml = supprimer_objet(xml, PIECE_SIGNATURE)
+        cfg = supprimer_piece(cfg, PIECE_SIGNATURE)
+        print("  signature  aucune (pièce retirée du projet)")
 
     # ------------------------------------------------- noms et compteurs
     nouveau_svg = "3D/" + f"{nom}-{numero}".strip("- ").replace(" ", "_") + ".svg"
@@ -451,8 +463,6 @@ def main():
                          faces=len(flocage[1]),
                          svg=(os.path.basename(svg_flocage),
                               os.path.basename(nouveau_svg)))
-    cfg = modifier_piece(cfg, PIECE_SIGNATURE, nom=f"Signature {signature}",
-                         faces=len(m_sig[1]))
     cfg = re.sub(r'(<object id="13">\s*<metadata key="name" value="[^"]*"/>\s*'
                  r'<metadata key="extruder" value="\d+"/>\s*<metadata face_count=")\d+(")',
                  lambda m: m.group(1) + str(total_faces(cfg, 13)) + m.group(2),
@@ -472,7 +482,10 @@ def main():
         pieces.pop(svg_flocage, None)
         ordre = [nouveau_svg if o == svg_flocage else o for o in ordre]
     if svg_signature:
-        pieces[svg_signature] = ecrire_svg(gr_sig)
+        if gr_sig is None:
+            pieces.pop(svg_signature, None)
+        else:
+            pieces[svg_signature] = ecrire_svg(gr_sig)
 
     ecrire_3mf(pieces, a.sortie, ordre)
     print(f"\n  -> {a.sortie}  ({os.path.getsize(a.sortie) / 1024:.0f} Ko)")

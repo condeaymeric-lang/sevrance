@@ -38,7 +38,7 @@ python tools/personnaliser_maillot.py source.3mf sortie.3mf \
 | `--nom` | nom floqué au dos du maillot, et sur la plaque par défaut |
 | `--numero` | numéro au dos ; sans cette option, celui d'origine est **conservé tel quel** |
 | `--plaque` | texte de la plaque ; `"PRÉNOM / NOM"` pour deux lignes, sinon une seule, recentrée |
-| `--signature` | nom écrit à la main |
+| `--signature` | nom écrit à la main ; `--signature ""` retire complètement la pièce |
 | `--graine` | change le tracé de la signature sans changer le nom |
 
 Les valeurs par défaut sont en tête du script, dans le bloc `PARAMÈTRES`.
@@ -84,6 +84,10 @@ l'autographe d'origine).
 C'est une écriture inventée : elle ne reproduit la signature de personne. C'est
 précisément ce qu'on veut en remplaçant un autographe réel par un nom fictif.
 `--graine` donne d'autres variantes du même nom.
+
+`--signature ""` supprime la signature pour de bon : la pièce, son maillage, son
+entrée dans le config et son SVG disparaissent du projet. Il ne reste rien à cet
+endroit, pas même une pièce vide.
 
 ### Ce que le script ne met pas à jour
 
