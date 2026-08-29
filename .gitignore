@@ -27,3 +27,7 @@ sortie/
 __pycache__/
 *.pyc
 .venv/
+
+# Modèles 3MF (souvent sous licence : à ne pas versionner) et polices téléchargées.
+tools/polices/
+*.3mf

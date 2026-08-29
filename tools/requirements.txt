@@ -1,1 +1,8 @@
+# Générateur de cadre depuis zéro (cadre_maillot_ol.py)
 cadquery>=2.3
+
+# Personnalisation d'un 3MF existant (personnaliser_maillot.py)
+fonttools>=4.40
+shapely>=2.0
+mapbox_earcut>=1.0
+numpy>=1.24

@@ -1,12 +1,11 @@
-# tools/ — générateur de cadre maillot 3D
+# tools/ — cadres maillot 3D
 
-`cadre_maillot_ol.py` construit un cadre 200 × 150 mm avec un maillot de foot
-en relief, et exporte de quoi imprimer en multicouleur :
+Deux outils indépendants :
 
-- `sortie/cadre_maillot.3mf` — les quatre pièces avec leur couleur, à ouvrir
-  dans Bambu Studio (ou tout slicer lisant le 3MF) ;
-- `sortie/cadre_maillot_<pièce>.stl` — les mêmes pièces séparées, si tu
-  préfères les charger une par une.
+| Script | Ce qu'il fait |
+| --- | --- |
+| `personnaliser_maillot.py` | reprend un projet 3MF existant et y remplace le nom, le numéro et la signature |
+| `cadre_maillot_ol.py` | fabrique un cadre complet depuis zéro, en géométrie paramétrique |
 
 ## Installation
 
@@ -15,33 +14,101 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r tools/requirements.txt
 ```
 
-CadQuery embarque OCCT : compte quelques centaines de Mo et une à deux
-minutes d'installation.
+`cadquery` n'est utile que pour le second script : il embarque OCCT et pèse
+quelques centaines de Mo. Pour la seule personnalisation, il suffit
+d'installer `fonttools`, `shapely`, `mapbox_earcut` et `numpy`.
 
-## Utilisation
+---
+
+## `personnaliser_maillot.py`
+
+Prend un projet Bambu Studio de cadre maillot dans lequel chaque élément est
+une pièce séparée, et n'en réécrit que trois maillages : le flocage au dos du
+maillot, le texte de la plaque et la signature. Tout le reste du projet —
+réglages d'impression, affectation des filaments, positions, plaques du cadre —
+est recopié à l'octet près.
+
+```bash
+python tools/personnaliser_maillot.py source.3mf sortie.3mf \
+    --nom DURAND --signature Durand
+```
+
+| Option | Effet |
+| --- | --- |
+| `--nom` | nom floqué au dos du maillot, et sur la plaque par défaut |
+| `--numero` | numéro au dos ; sans cette option, celui d'origine est **conservé tel quel** |
+| `--plaque` | texte de la plaque ; `"PRÉNOM / NOM"` pour deux lignes, sinon une seule, recentrée |
+| `--signature` | nom écrit à la main |
+| `--graine` | change le tracé de la signature sans changer le nom |
+
+Les valeurs par défaut sont en tête du script, dans le bloc `PARAMÈTRES`.
+
+### Comment il se repère
+
+Rien n'est codé en dur en millimètres : le script **mesure la pièce d'origine**
+et cale la nouvelle dessus.
+
+- Le flocage est découpé en deux paquets de part et d'autre du plus grand vide
+  horizontal : le nom au-dessus, le numéro en dessous.
+- La hauteur de capitale est la **médiane** des sommets de lettres, pour qu'un
+  accent isolé (le `Ć` de `IBRAHIMOVIĆ`) ne fausse pas la mesure.
+- Ligne de base, cadrage et épaisseur sont repris de l'ancienne géométrie.
+
+Le nouveau maillage est extrudé depuis les contours 2D (`geometrie2d.py`) :
+triangulation par `mapbox_earcut`, fusion des chevauchements par `shapely`.
+Chaque pièce produite est vérifiable : maillage fermé, orienté vers l'extérieur,
+volume positif.
+
+Le SVG associé à la pièce est réécrit en même temps, à la même échelle, pour que
+la pièce reste modifiable dans Bambu Studio. Le `text_info` de la plaque est mis
+à jour lui aussi : si vous rouvrez l'outil texte, Bambu régénère bien le nouveau
+nom.
+
+### Polices
+
+Le caractère du flocage d'origine est une police de club, non redistribuable.
+`Barlow Condensed SemiBold` en est l'équivalent libre le plus proche ; le script
+la télécharge dans `tools/polices/` au premier lancement. `CONDENSE_MAILLOT`
+(0.93) resserre les lettres pour retomber sur les proportions du flocage
+d'origine. La plaque utilise Liberation Sans Bold, équivalent métrique
+d'Helvetica.
+
+### La signature
+
+`signature_manuscrite.py` **dessine** une écriture, il n'utilise pas de police.
+Chaque lettre est une poignée de points de passage reliés en une seule ligne
+continue lissée, avec inclinaison, ondulation de la main et paraphe final ; le
+trait est ensuite épaissi à la largeur voulue (0,46 mm par défaut, celle de
+l'autographe d'origine).
+
+C'est une écriture inventée : elle ne reproduit la signature de personne. C'est
+précisément ce qu'on veut en remplaçant un autographe réel par un nom fictif.
+`--graine` donne d'autres variantes du même nom.
+
+### Ce que le script ne met pas à jour
+
+Les vignettes de plaque (`Metadata/plate_*.png`) et les photos du modèle
+(`Auxiliaries/`) restent celles du fichier d'origine : elles montrent donc
+encore l'ancien nom. Bambu Studio régénère les vignettes au premier découpage.
+La description du modèle, écrite par son auteur, est conservée telle quelle.
+
+---
+
+## `cadre_maillot_ol.py`
+
+Construit un cadre 200 × 150 mm avec un maillot en relief et exporte
+`sortie/cadre_maillot.3mf` (quatre pièces colorées) plus un STL par pièce.
 
 ```bash
 python tools/cadre_maillot_ol.py
 ```
 
-Le dossier `sortie/` est créé à la racine du dépôt et n'est pas versionné.
-Génération complète : une dizaine de secondes.
+Tout se règle dans le bloc `PARAMÈTRES` : `NOM`, `NUMERO`, `CLUB`, dimensions,
+couleurs. La silhouette est la liste `SILHOUETTE`, en millimètres.
 
-## Paramétrage
-
-Tout se règle dans le bloc `PARAMÈTRES` en haut du fichier : `NOM`, `NUMERO`,
-`CLUB`, les dimensions du cadre, les couleurs. La silhouette du maillot est la
-liste `SILHOUETTE` (coordonnées en mm, centrées sur l'origine).
-
-Les polices passent par leur nom de famille (`FONT`, `FONT_BOLD`) ; le gras est
-obtenu par `kind="bold"`. Pour un `.ttf` précis, renseigner `FONT_PATH`.
-
-## Découpage des couleurs
-
-La plaque et le bord — l'essentiel du volume — sont d'une seule couleur. Les
-autres teintes ne sont que des surcouches de 0,6 mm (3 couches à 0,2 mm)
-posées sur le dessus du maillot : les changements d'outil ne tombent donc que
-sur trois couches, d'où très peu de purge.
+La plaque et le bord — l'essentiel du volume — sont d'une seule couleur ; les
+autres teintes ne sont que des surcouches de 0,6 mm posées sur le maillot, si
+bien que les changements d'outil ne tombent que sur trois couches.
 
 | Pièce | Couleur par défaut | Contenu |
 | --- | --- | --- |
@@ -50,12 +117,5 @@ sur trois couches, d'où très peu de purge.
 | `bleu` | bleu roi | col, manche gauche, nom du club, signature |
 | `rouge` | rouge | manche droite, ourlet, numéro |
 
-Pour ne charger que trois bobines, mettre `C_FOND = C_BLEU`.
-
-## Dans le slicer
-
-Les quatre pièces sont exportées comme quatre objets distincts, déjà
-positionnés les uns par rapport aux autres. Dans Bambu Studio, les
-sélectionner toutes puis « Assembler en un seul objet » (*Assemble into one
-object*) avant d'affecter un filament à chacune : les positions relatives sont
-conservées et l'impression se fait en une seule pièce.
+Dans Bambu Studio, sélectionner les quatre pièces puis « Assembler en un seul
+objet » avant d'affecter les filaments.
