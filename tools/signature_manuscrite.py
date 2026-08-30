@@ -10,6 +10,7 @@ Le résultat est une écriture inventée. Elle ne reproduit la signature de
 personne — c'est justement le but quand on remplace un autographe réel.
 """
 import random
+import unicodedata
 
 # Repère d'écriture : ligne de base à y = 0, hauteur d'x = 1.
 MONTANTE = 2.30      # sommet des lettres montantes (b, d, f, h, k, l, t)
@@ -132,7 +133,10 @@ def composer(nom, elan=True, penche=0.20, alea=0.010, graine=7):
     elan   : grand geste d'attaque qui passe au-dessus du mot
     penche : inclinaison (cisaillement horizontal)
     """
-    nom = nom.strip()
+    # Une signature ne porte pas ses accents : on écrit la lettre de base
+    # plutôt que de sauter le signe faute de tracé pour « ï » ou « é ».
+    nom = "".join(c for c in unicodedata.normalize("NFD", nom.strip())
+                  if not unicodedata.combining(c))
     if not nom:
         return []
     rnd = random.Random(graine)

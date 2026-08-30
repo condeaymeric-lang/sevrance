@@ -134,6 +134,11 @@ C'est une écriture inventée : elle ne reproduit la signature de personne. C'es
 précisément ce qu'on veut en remplaçant un autographe réel par un nom fictif.
 `--graine` donne d'autres variantes du même nom.
 
+L'alphabet cursif ne porte pas d'accents : `Lorelaï` s'écrit `Lorelai`, comme
+dans la plupart des signatures manuscrites. La lettre de base est bien tracée,
+seul le signe diacritique tombe — le nom du maillot et celui de la plaque, eux,
+gardent leurs accents.
+
 `--signature ""` supprime la signature pour de bon : la pièce, son maillage, son
 entrée dans le config et son SVG disparaissent du projet. Il ne reste rien à cet
 endroit, pas même une pièce vide.
