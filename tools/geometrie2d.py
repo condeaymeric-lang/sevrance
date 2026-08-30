@@ -160,13 +160,35 @@ def grouper(contours):
     return groupes
 
 
-def _groupes_shapely(geom):
+def _nettoyer_anneau(anneau, eps=1e-7):
+    """Retire les points consécutifs confondus et le point de fermeture."""
+    out = []
+    for p in anneau:
+        if not out or abs(p[0] - out[-1][0]) > eps or abs(p[1] - out[-1][1]) > eps:
+            out.append(p)
+    if len(out) > 1 and abs(out[0][0] - out[-1][0]) <= eps \
+            and abs(out[0][1] - out[-1][1]) <= eps:
+        out.pop()
+    return out
+
+
+def _groupes_shapely(geom, aire_min=1e-3):
+    """Convertit un résultat shapely en groupes (extérieur, trous).
+
+    Les opérations booléennes laissent parfois des éclats de surface nulle,
+    réduits à deux ou trois points confondus. Ils ne s'extrudent pas en volume
+    fermé : on les écarte ici plutôt que de produire un maillage invalide.
+    """
     out = []
     for g in (geom.geoms if hasattr(geom, "geoms") else [geom]):
-        if g.is_empty:
+        if g.is_empty or g.area < aire_min:
             continue
-        out.append((list(g.exterior.coords)[:-1],
-                    [list(r.coords)[:-1] for r in g.interiors]))
+        ext = _nettoyer_anneau(list(g.exterior.coords))
+        if len(ext) < 3:
+            continue
+        trous = [t for t in (_nettoyer_anneau(list(r.coords)) for r in g.interiors)
+                 if len(t) >= 3]
+        out.append((ext, trous))
     return out
 
 
@@ -182,6 +204,10 @@ def mailler(groupes, z0, z1):
     """Extrude des groupes (extérieur, trous) en maillage fermé."""
     V, T = [], []
     for ext, trous in groupes:
+        ext = _nettoyer_anneau(ext)
+        trous = [t for t in map(_nettoyer_anneau, trous) if len(t) >= 3]
+        if len(ext) < 3:
+            continue
         ext = ext if _aire(ext) > 0 else ext[::-1]                 # anti-horaire
         trous = [t if _aire(t) < 0 else t[::-1] for t in trous]    # horaire
 

@@ -42,6 +42,9 @@ python tools/personnaliser_maillot.py source.3mf sortie.3mf \
 | `--signature` | nom écrit à la main ; `--signature ""` retire complètement la pièce |
 | `--club` | texte du haut du cadre |
 | `--filament` | recolore un filament, `--filament 2=#FFFFFF` ; répétable |
+| `--filament-nom` | filament du nom et du numéro floqués |
+| `--ombre` | cerne le nom et le numéro d'une seconde couleur, `--ombre 4:0.9` |
+| `--liseres` | liseré autour du maillot et bandes d'épaule, `--liseres 1,4` |
 | `--graine` | change le tracé de la signature sans changer le nom |
 
 Les valeurs par défaut sont en tête du script, dans le bloc `PARAMÈTRES`.
@@ -134,6 +137,25 @@ précisément ce qu'on veut en remplaçant un autographe réel par un nom fictif
 `--signature ""` supprime la signature pour de bon : la pièce, son maillage, son
 entrée dans le config et son SVG disparaissent du projet. Il ne reste rien à cet
 endroit, pas même une pièce vide.
+
+### Habillage du maillot
+
+`--liseres CONTOUR,BANDE` et `--ombre N:LARGEUR` **ajoutent des pièces** au
+projet plutôt que d'en modifier : un objet, un composant et une entrée de
+réglages, avec le filament demandé.
+
+Les liserés sont dérivés de la silhouette du maillot, extraite de son propre
+maillage : un anneau de 1 mm suit tout le contour, puis deux bandes ne longent
+que le bord supérieur — épaules, manches et encolure, ce qui dessine le col au
+passage. Les largeurs et les intervalles sont dans la constante `LISERES` ;
+tous restent au-dessus de 0,6 mm pour passer avec une buse de 0,4.
+
+`--ombre` cerne le nom et le numéro d'un anneau de la largeur voulue. C'est un
+anneau, pas une plaque posée dessous : les deux couleurs ne se recouvrent nulle
+part.
+
+Chaque pièce ajoutée est contrôlée avant écriture — maillage fermé, volume
+positif — et le script s'arrête sans rien écrire si le contrôle échoue.
 
 ### Couleurs
 

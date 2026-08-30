@@ -60,6 +60,12 @@ POLICES_MAILLOT = {
 }
 POLICE_PLAQUE = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 
+# Liserés du maillot : distances au bord, en mm. Le premier suit toute la
+# silhouette, les suivants ne longent que les épaules, les manches et le col.
+# Les bandes et les intervalles restent au-dessus de 0,6 mm pour passer
+# proprement avec une buse de 0,4.
+LISERES = [(0.0, 1.0), (1.6, 2.9), (3.5, 4.8)]
+
 RACINE = "3D/3dmodel.model"
 
 
@@ -171,6 +177,62 @@ class Projet:
         return (min(p[0] for p in pts), max(p[0] for p in pts),
                 min(p[1] for p in pts), max(p[1] for p in pts))
 
+    # ------------------------------------------------------- ajout de pièces
+    def ajouter(self, nom, V, T, extrudeur):
+        """Ajoute une pièce à l'assemblage : maillage, composant et réglages.
+
+        Le maillage est donné dans le repère de l'assemblage ; le composant
+        reçoit donc une transformation identité. Le maillage est contrôlé
+        avant d'être écrit : une pièce ouverte ne doit pas partir au découpage.
+        """
+        import uuid
+        ferme, volume = g2.verifier(V, T)
+        if not ferme or volume <= 0:
+            raise SystemExit(f"pièce « {nom} » : maillage non fermé "
+                             f"(volume {volume:.3f}), rien n'a été écrit")
+        ids = [int(i) for i in re.findall(r'<object id="(\d+)"', "".join(self.modeles.values()))]
+        oid = max(ids) + 1
+        fichier = max(set(self.emplacement.values()),
+                      key=list(self.emplacement.values()).count)
+        s = self.modeles[fichier]
+
+        v = "".join(f'     <vertex x="{x:.9g}" y="{y:.9g}" z="{z:.9g}"/>\n' for x, y, z in V)
+        t = "".join(f'     <triangle v1="{a}" v2="{b}" v3="{c}"/>\n' for a, b, c in T)
+        uid = f' p:UUID="{uuid.uuid4()}"' if 'p:UUID' in s else ""
+        objet = (f'  <object id="{oid}"{uid} type="model">\n   <mesh>\n'
+                 f'    <vertices>\n{v}    </vertices>\n'
+                 f'    <triangles>\n{t}    </triangles>\n   </mesh>\n  </object>\n')
+        i = s.rindex("</resources>")
+        self.modeles[fichier] = s[:i] + objet + s[i:]
+        self.emplacement[oid] = fichier
+
+        # composant, calqué sur la forme de ceux déjà présents
+        racine = self.modeles[RACINE]
+        j = re.search(rf'<object id="{self.assemblage}"[^>]*>', racine).end()
+        k = racine.index("</components>", j)
+        modele_comp = re.findall(r'<component [^>]*/>', racine[j:k])[-1]
+        chemin_p = re.search(r'p:path="([^"]*)"', modele_comp)
+        uid_c = f' p:UUID="{uuid.uuid4()}"' if "p:UUID" in modele_comp else ""
+        comp = ('\n    <component'
+                + (f' p:path="{chemin_p.group(1)}"' if chemin_p else "")
+                + f' objectid="{oid}"{uid_c}'
+                ' transform="1 0 0 0 1 0 0 0 1 0 0 0" />')
+        self.modeles[RACINE] = racine[:k] + comp + "\n   " + racine[k:]
+        self.composants[oid] = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
+
+        # entrée dans model_settings.config, insérée après la dernière pièce
+        i = self.cfg.index(f'<object id="{self.assemblage}">')
+        fin = self.cfg.rindex("</part>", i, self.cfg.index("</object>", i)) + len("</part>")
+        piece = (f'\n    <part id="{oid}" subtype="normal_part">\n'
+                 f'      <metadata key="name" value="{echapper(nom)}"/>\n'
+                 f'      <metadata key="matrix" value="1 0 0 0 1 0 0 0 1 0 0 0 0 0 0 1"/>\n'
+                 f'      <metadata key="extruder" value="{extrudeur}"/>\n'
+                 f'      <mesh_stat face_count="{len(T)}" edges_fixed="0"'
+                 ' degenerate_facets="0" facets_removed="0" facets_reversed="0"'
+                 ' backwards_edges="0"/>\n    </part>')
+        self.cfg = self.cfg[:fin] + piece + self.cfg[fin:]
+        return oid
+
     # ---------------------------------------------------------- enregistrement
     def enregistrer(self, chemin):
         for f, s in self.modeles.items():
@@ -222,6 +284,9 @@ def modifier_piece(cfg, pid, **valeurs):
         seg = re.sub(r'(<mesh_stat face_count=")\d+(")',
                      lambda m: m.group(1) + str(valeurs["faces"]) + m.group(2),
                      seg, count=1)
+    if "extrudeur" in valeurs:
+        seg = re.sub(r'(<metadata key="extruder" value=")\d+(")',
+                     lambda m: m.group(1) + str(valeurs["extrudeur"]) + m.group(2), seg)
     if "svg" in valeurs:
         avant, apres = valeurs["svg"]
         seg = seg.replace(f'filepath="{os.path.basename(avant)}"',
@@ -539,6 +604,55 @@ def texte_cadre(txt, police, capitale, base, centre_x=None, gauche_x=None,
 
 
 # =========================================================================
+#  HABILLAGE DU MAILLOT
+# =========================================================================
+
+def bord_superieur(contour):
+    """Portion du contour qui va d'une pointe de manche à l'autre par le haut.
+
+    C'est la ligne que suivent les liserés d'épaule d'un maillot : elle
+    contourne aussi l'encolure, ce qui dessine le col au passage.
+    """
+    c = contour if g2._aire(contour) > 0 else contour[::-1]
+    n = len(c)
+    i_g = min(range(n), key=lambda i: c[i][0])
+    i_d = max(range(n), key=lambda i: c[i][0])
+    a, b = (i_d, i_g) if i_d < i_g else (i_g, i_d)
+    dedans, dehors = c[a:b + 1], c[b:] + c[:a + 1]
+    return max(dedans, dehors, key=lambda r: max(q[1] for q in r))
+
+
+def liseres(contour, largeurs):
+    """Découpe le pourtour du maillot en bandes parallèles au bord.
+
+    `largeurs` est une liste de couples (début, fin) mesurés depuis le bord :
+    la première bande suit toute la silhouette, les suivantes ne longent que
+    le bord supérieur — épaules, manches et encolure.
+    """
+    from shapely.geometry import Polygon, LineString
+    poly = Polygon(contour).buffer(0)
+    haut = LineString(bord_superieur(contour))
+    bandes = []
+    for i, (d0, d1) in enumerate(largeurs):
+        if i == 0:
+            forme = poly.difference(poly.buffer(-(d1 - d0)))
+        else:
+            large = haut.buffer(d1, cap_style="flat", join_style="round")
+            etroit = haut.buffer(d0, cap_style="flat", join_style="round")
+            forme = large.difference(etroit).intersection(poly)
+        bandes.append(g2._groupes_shapely(forme))
+    return bandes
+
+
+def ombre_portee(groupes, largeur):
+    """Anneau qui déborde d'un contour, pour cerner un flocage d'une seconde couleur."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    plein = unary_union([Polygon(e, t).buffer(0) for e, t in groupes])
+    return g2._groupes_shapely(plein.buffer(largeur, join_style="round").difference(plein))
+
+
+# =========================================================================
 #  PROGRAMME
 # =========================================================================
 
@@ -558,6 +672,14 @@ def main():
                     help="variante du tracé de la signature")
     ap.add_argument("--club", default=None,
                     help="texte du haut du cadre (nom du club)")
+    ap.add_argument("--liseres", default=None, metavar="CONTOUR,BANDE",
+                    help="ajoute un liseré tout autour du maillot et deux bandes "
+                         "d'épaule ; deux numéros de filament, par exemple 1,4")
+    ap.add_argument("--filament-nom", type=int, default=None, metavar="N",
+                    help="filament du nom et du numéro floqués")
+    ap.add_argument("--ombre", default=None, metavar="N[:LARGEUR]",
+                    help="cerne le nom et le numéro d'une seconde couleur, "
+                         "par exemple 4:0.9")
     ap.add_argument("--filament", action="append", default=[], metavar="N=#RRGGBB",
                     help="recolore un filament, par exemple --filament 2=#FFFFFF ; "
                          "répétable")
@@ -700,6 +822,46 @@ def main():
         if svg_sig:
             p.fichiers.pop(svg_sig, None)
         print("  signature  aucune (pièce retirée du projet)")
+
+    # ------------------------------------------------- habillage du maillot
+    def en_assemblage(oid, groupes):
+        """Passe des contours du repère d'une pièce à celui de l'assemblage."""
+        return [([p.vers_monde(oid, q) for q in e],
+                 [[p.vers_monde(oid, q) for q in t] for t in trous])
+                for e, trous in groupes]
+
+    if a.ombre:
+        fil, _, larg = a.ombre.partition(":")
+        larg = float(larg) if larg else 0.9
+        ex = p.echelle(oid)[0]
+        anneau = ombre_portee(groupes, larg / ex)
+        v = p.composants[oid]
+        za, zb = z0 * v[8] + v[11], z1 * v[8] + v[11]
+        m = g2.mailler(en_assemblage(oid, anneau), za, zb)
+        n = p.ajouter(f"Ombre {nom}", *m, int(fil))
+        print(f"  ombre      {larg:.1f} mm autour du flocage : {len(m[1])} triangles "
+              f"(pièce {n}, filament {fil})")
+    if a.filament_nom:
+        p.cfg = modifier_piece(p.cfg, oid, extrudeur=a.filament_nom)
+
+    if a.liseres:
+        f_contour, f_bande = [int(x) for x in a.liseres.split(",")]
+        mid = pieces["maillot"]
+        Vm, Tm = p.maillage(mid)
+        silhouette = max(g2.contours_du_dessus(Vm, Tm), key=len)
+        silhouette = [p.vers_monde(mid, q) for q in silhouette]
+        vm = p.composants[mid]
+        dessus = boite(Vm, Tm)[5] * vm[8] + vm[11]
+        bandes = liseres(silhouette, LISERES)
+        for etq, groupe, fil in (("contour", bandes[0], f_contour),
+                                 ("bande 1", bandes[1], f_bande),
+                                 ("bande 2", bandes[2], f_contour)):
+            if not groupe:
+                continue
+            m = g2.mailler(groupe, dessus - 0.1, dessus + 0.4)
+            n = p.ajouter(f"Liseré {etq}", *m, fil)
+            print(f"  liseré     {etq} : {len(m[1])} triangles "
+                  f"(pièce {n}, filament {fil})")
 
     # ------------------------------------------------- le nom du club
     cid = pieces["club"]
